@@ -23,8 +23,8 @@ is not there already.
 ## Build
 
 ```bash
-git clone https://github.com/<owner>/conserve.git
-cd conserve
+git clone https://github.com/Anuoluwapo25/Conserve.git
+cd Conserve
 npm install
 npm run build
 ```

@@ -5,7 +5,7 @@ somebody's salary.
 
 ## Reporting
 
-Report privately via GitHub's [security advisories](https://github.com/Anuoluwapo25/conserve/security/advisories/new).
+Report privately via GitHub's [security advisories](https://github.com/Anuoluwapo25/Conserve/security/advisories/new).
 Please do not open a public issue for anything that would leak private data.
 
 ## What counts as a vulnerability
