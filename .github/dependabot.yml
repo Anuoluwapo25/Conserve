@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # The Midnight packages move fast and in lockstep — a mismatched ledger or
+  # runtime version breaks the build in ways that are slow to diagnose, so they
+  # are grouped into one PR rather than arriving piecemeal.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      midnight:
+        patterns:
+          - '@midnight-ntwrk/*'
+      dev-tooling:
+        patterns:
+          - 'typescript'
+          - 'prettier'
+          - 'vitest'
+          - '@types/*'
+          - 'vite*'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
