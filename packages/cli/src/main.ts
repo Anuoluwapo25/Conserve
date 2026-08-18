@@ -26,12 +26,13 @@ import { emptyPrivateState, prepareCycle, pureCircuits } from '@conserve/contrac
 import { ConserveSimulator } from '@conserve/contract/simulator';
 import { CONSERVE_PRIVATE_STATE_ID } from '@conserve/api';
 import { readPayroll } from './roster.js';
-import { buildWallet, formatDust, waitForSync, walletProviders } from './wallet.js';
+import { deriveAddresses, deriveKeys, seedFromHex } from './keys.js';
+import { formatUnits, openWallet, summariseWallet, walletProviders } from './wallet.js';
 
 const USAGE = `conserve — privacy-preserving payroll on Midnight
 
 Usage:
-  conserve address                          Show the operator wallet address and balance
+  conserve address                          Show the operator addresses and balances
   conserve deploy                           Deploy a payroll contract
   conserve open --contract <addr> --payroll <file>
                                             Publish the budget commitment for a new cycle
@@ -43,6 +44,7 @@ Usage:
 Options:
   --network <preprod|undeployed>            Default: preprod
   --json                                    Machine-readable output
+  --offline                                 (address) derive addresses without syncing
 
 Environment:
   CONSERVE_SEED       Hex wallet seed (required for address/deploy/open/settle)
@@ -134,18 +136,19 @@ const emit = (flags: Args['flags'], human: string, data: Record<string, unknown>
 /** Brings up wallet + providers for the commands that write to the chain. */
 const connect = async (flags: Args['flags']) => {
   const config = networkConfig(profileOf(flags));
-  const wallet = await buildWallet(config, env('CONSERVE_SEED'));
+  const keys = deriveKeys(seedFromHex(env('CONSERVE_SEED')));
   process.stderr.write('syncing wallet…');
-  const state = await waitForSync(wallet);
+  const wallet = await openWallet(config, keys);
+  await wallet.facade.waitForSyncedState();
   process.stderr.write(' done\n');
 
   const providers = buildProviders({
     config,
-    wallet: walletProviders(wallet, state.coinPublicKey, state.encryptionPublicKey),
+    wallet: walletProviders(wallet),
     accountId: process.env.CONSERVE_ACCOUNT ?? 'default',
     password: () => env('CONSERVE_PASSWORD'),
   });
-  return { config, wallet, state, providers };
+  return { config, keys, wallet, providers };
 };
 
 const loadPrivateState = async (
@@ -158,12 +161,34 @@ const loadPrivateState = async (
 
 const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
   async address(flags) {
-    const { wallet, state, config } = await connect(flags);
-    const balance = state.balances[Object.keys(state.balances)[0] ?? ''] ?? 0n;
+    // Addresses derive locally, so this works before the wallet has ever seen
+    // the chain — which is the point: you need one to visit the faucet.
+    const config = networkConfig(profileOf(flags));
+    const keys = deriveKeys(seedFromHex(env('CONSERVE_SEED')));
+    const addresses = deriveAddresses(keys, config.networkId);
+
+    if (flags.offline) {
+      emit(
+        flags,
+        `network:   ${config.networkId}\nnight:     ${addresses.night}\n` +
+          `shielded:  ${addresses.shielded}\ndust:      ${addresses.dust}`,
+        { network: config.networkId, ...addresses },
+      );
+      return;
+    }
+
+    const wallet = await openWallet(config, keys);
+    const balances = await summariseWallet(wallet);
     emit(
       flags,
-      `network:  ${config.networkId}\naddress:  ${state.address}\nbalance:  ${formatDust(balance)} tDUST`,
-      { network: config.networkId, address: state.address, balance },
+      `network:   ${config.networkId}\nnight:     ${addresses.night}\n` +
+        `shielded:  ${addresses.shielded}\ndust:      ${addresses.dust}\n` +
+        `\nNIGHT:     ${formatUnits(balances.night)}\nDUST:      ${formatUnits(balances.dust)}` +
+        (balances.night === 0n
+          ? '\n\nFund the NIGHT address above at https://faucet.preprod.midnight.network,' +
+            '\nthen register it for DUST generation so fees can be paid.'
+          : ''),
+      { network: config.networkId, ...addresses, ...balances },
     );
     await wallet.close();
   },
