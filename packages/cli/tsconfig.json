@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"],
+    // @midnight-ntwrk/wallet-api ships extensionless relative re-exports in its
+    // .d.ts files, which NodeNext resolution rejects, hiding every type it
+    // exports. Bundler resolution reads them correctly. Our own relative
+    // imports still carry explicit .js extensions, so the emitted ESM runs on
+    // Node unchanged.
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["src/**/*.ts"]
+}
