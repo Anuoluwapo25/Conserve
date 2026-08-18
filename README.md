@@ -1,6 +1,6 @@
 # Conserve
 
-[![CI](https://github.com/Anuoluwapo25/conserve/actions/workflows/ci.yml/badge.svg)](https://github.com/Anuoluwapo25/conserve/actions/workflows/ci.yml)
+[![CI](https://github.com/Anuoluwapo25/Conserve/actions/workflows/ci.yml/badge.svg)](https://github.com/Anuoluwapo25/Conserve/actions/workflows/ci.yml)
 
 **Payroll and revenue splits where the total is verifiable and nobody's
 individual amount is public.**
