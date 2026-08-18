@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+managed/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+coverage/
+.vite/
+packages/ui/dist/
