@@ -34,7 +34,9 @@ const parseRecipient = (value: unknown, index: number): Uint8Array => {
 
 const parseAmount = (value: unknown, where: string): bigint => {
   if (typeof value !== 'string' && typeof value !== 'number') {
-    throw new Error(`${where}: expected a number or a decimal string, got ${JSON.stringify(value)}`);
+    throw new Error(
+      `${where}: expected a number or a decimal string, got ${JSON.stringify(value)}`,
+    );
   }
   try {
     return BigInt(value);
