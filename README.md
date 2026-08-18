@@ -76,6 +76,13 @@ The ledger ends up holding a commitment, a cycle id, a settled flag, sixteen
 salted nullifiers and sixteen receipt commitments. No amount. No recipient. No
 headcount.
 
+Recipients get the other half. Each one receives `(cycleId, recipient, amount,
+nonce)` and can recompute their own commitment and find it in the on-chain tree —
+proving their employer settled exactly that amount, in a transaction the network
+accepted, without revealing the amount to anyone and without learning anything
+about the rest of the payroll. `conserve verify` does this, and so does the
+dashboard.
+
 ### The headcount is not a footnote
 
 The first version of `settle` looped over the roster and wrote a nullifier only
@@ -109,11 +116,13 @@ It is about 200 lines and it is the whole idea.
 ## Quick reference
 
 ```bash
-npm test                                          # 17 circuit tests, no network
+npm test                                          # 21 circuit tests, no network
 conserve address --offline                        # derive a fundable address
 conserve deploy                                   # deploy to Preprod
 conserve open   --contract <addr> --payroll p.json
 conserve settle --contract <addr> --payroll p.json
+conserve settle --contract <addr> --payroll p.json --receipts ./receipts
+conserve verify --contract <addr> --receipt receipts/cycle-1-core-dev.json
 conserve status --contract <addr>                 # audit; needs only an indexer
 ```
 

@@ -69,22 +69,51 @@ before you lose the terminal.
 
 ```bash
 conserve open   --contract <addr> --payroll payroll.json
-conserve settle --contract <addr> --payroll payroll.json
+conserve settle --contract <addr> --payroll payroll.json --receipts ./receipts
 ```
 
-`open` publishes the commitment to the budget. `settle` proves the split and
-prints one receipt line per recipient:
+`open` publishes the commitment to the budget. `settle` proves the split and,
+with `--receipts`, writes one file per recipient:
 
-```
-core-dev: commitment 7f3a… nonce 91cd…
+```json
+{
+  "cycleId": "1",
+  "recipient": "9f1c0e…6e23",
+  "amount": "4500",
+  "nonce": "91cd7a…08f1"
+}
 ```
 
-Hand each recipient their own line and nothing else. Those two values plus their
-own identifier and amount are what they will need to prove their earnings in
-Level 5.
+Hand each recipient their own file and nothing else. It contains only their own
+figures — the file for one recipient says nothing about any other.
 
 The payroll file is passed to both commands and must be identical between them —
 `open` reads only its total, `settle` reads the lines.
+
+## Check a receipt
+
+Anyone holding a receipt can confirm it against the chain:
+
+```bash
+conserve verify --contract <addr> --receipt receipts/cycle-1-core-dev.json
+```
+
+```
+receipt is anchored on chain
+commitment: 7f3ac1…
+proof path: 12 levels
+
+The organizer included exactly this amount in a settlement the network
+accepted. Verifying it revealed the amount to nobody but you.
+```
+
+The command recomputes the commitment locally and looks for it in the contract's
+Merkle tree. It exits non-zero if the receipt is not there — so a recipient can
+detect an employer who quietly changed a figure after the fact. Like `status`, it
+needs only an indexer: no seed, no wallet, no proof server.
+
+The same check is available in the dashboard for recipients who would rather not
+install anything.
 
 ## Audit a contract
 
@@ -111,5 +140,6 @@ receipts anchored:  16
 npm run dev -w @conserve/ui
 ```
 
-Two panels: a payroll composer that never leaves the tab, and a live read of any
-contract's public state. The contrast between them is the point.
+Three panels: a payroll composer that never leaves the tab, a live read of any
+contract's public state, and a receipt checker for recipients. The contrast
+between the first two is the point; the third is who it is for.
