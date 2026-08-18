@@ -66,7 +66,8 @@ export const openWallet = async (
   const facade = await WalletFacade.init({
     configuration,
     shielded: (c) => ShieldedWallet(c).startWithSecretKeys(keys.shieldedSecretKeys),
-    unshielded: (c) => UnshieldedWallet(c).startWithPublicKey(PublicKey.fromKeyStore(nightKeystore)),
+    unshielded: (c) =>
+      UnshieldedWallet(c).startWithPublicKey(PublicKey.fromKeyStore(nightKeystore)),
     dust: (c) => DustWallet(c).startWithSecretKey(keys.dustSecretKey, dustParameters),
   });
 
@@ -124,10 +125,7 @@ export type WalletSummary = {
 
 export const summariseWallet = async (wallet: OperatorWallet): Promise<WalletSummary> => {
   const state = await wallet.facade.waitForSyncedState();
-  const night = (Object.values(state.unshielded.balances) as bigint[]).reduce(
-    (a, b) => a + b,
-    0n,
-  );
+  const night = (Object.values(state.unshielded.balances) as bigint[]).reduce((a, b) => a + b, 0n);
   // DUST accrues over time against registered NIGHT, so its balance is a
   // function of the moment you ask.
   const dust = state.dust.balance(new Date());
