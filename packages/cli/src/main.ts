@@ -8,6 +8,8 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join as joinPath } from 'node:path';
 import {
   type ConserveDeployment,
   type NetworkProfile,
@@ -21,6 +23,7 @@ import {
   publicState,
   settle,
   summarise,
+  verifyReceipt,
 } from '@conserve/api';
 import { emptyPrivateState, prepareCycle, pureCircuits } from '@conserve/contract';
 import { ConserveSimulator } from '@conserve/contract/simulator';
@@ -36,9 +39,11 @@ Usage:
   conserve deploy                           Deploy a payroll contract
   conserve open --contract <addr> --payroll <file>
                                             Publish the budget commitment for a new cycle
-  conserve settle --contract <addr> --payroll <file>
+  conserve settle --contract <addr> --payroll <file> [--receipts <dir>]
                                             Prove and submit the split
   conserve status --contract <addr>         Show the public state anyone can see
+  conserve verify --contract <addr> --receipt <file>
+                                            Check a receipt against the on-chain tree
   conserve simulate --payroll <file>        Run the circuits locally, no network
 
 Options:
@@ -104,6 +109,13 @@ const hexToBytes = (value: string): Uint8Array => {
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
+/** Filenames only; labels are local and must not end up anywhere else. */
+const slug = (label: string): string =>
+  label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'recipient';
+
 const organizerKey = (): Uint8Array => {
   const configured = process.env.CONSERVE_ORGANIZER_KEY;
   if (configured) return hexToBytes(configured);
@@ -157,6 +169,22 @@ const loadPrivateState = async (
 ) => {
   const stored = await providers.privateStateProvider.get(CONSERVE_PRIVATE_STATE_ID);
   return stored ?? emptyPrivateState(fallbackKey);
+};
+
+/**
+ * The indexer alone, for the commands that only read. Deliberately needs no
+ * seed, no wallet and no proof server: auditing a Conserve contract must not
+ * require credentials of any kind.
+ */
+const readOnlyProviders = async (flags: Args['flags']) => {
+  const config = networkConfig(profileOf(flags));
+  const { indexerPublicDataProvider } =
+    await import('@midnight-ntwrk/midnight-js-indexer-public-data-provider');
+  const { setNetworkId } = await import('@midnight-ntwrk/midnight-js-network-id');
+  setNetworkId(config.networkId);
+  return {
+    publicDataProvider: indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl),
+  } as Parameters<typeof publicState>[0];
 };
 
 const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
@@ -245,6 +273,29 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
       nonce: bytesToHex(receipt.nonce),
       commitment: bytesToHex(receipt.commitment),
     }));
+    const receiptDir = typeof flags.receipts === 'string' ? flags.receipts : undefined;
+    if (receiptDir !== undefined) {
+      await mkdir(receiptDir, { recursive: true });
+      await Promise.all(
+        result.receipts.map((receipt, index) =>
+          writeFile(
+            joinPath(receiptDir, `cycle-${receipt.cycleId}-${slug(receipts[index]!.label)}.json`),
+            `${JSON.stringify(
+              {
+                cycleId: String(receipt.cycleId),
+                recipient: bytesToHex(receipt.recipient),
+                amount: String(receipt.amount),
+                nonce: bytesToHex(receipt.nonce),
+              },
+              null,
+              2,
+            )}\n`,
+            { mode: 0o600 },
+          ),
+        ),
+      );
+    }
+
     emit(
       flags,
       `settled\ntx: ${result.txId} @ block ${result.blockHeight}\n` +
@@ -278,6 +329,33 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
       view,
     );
     process.exit(0);
+  },
+
+  async verify(flags) {
+    const raw: unknown = JSON.parse(await readFile(required(flags, 'receipt'), 'utf8'));
+    const receipt = raw as Record<string, unknown>;
+    const providers = await readOnlyProviders(flags);
+    const state = await publicState(providers, required(flags, 'contract'));
+
+    const verdict = verifyReceipt(state, {
+      cycleId: BigInt(String(receipt.cycleId)),
+      recipient: hexToBytes(String(receipt.recipient)),
+      amount: BigInt(String(receipt.amount)),
+      nonce: hexToBytes(String(receipt.nonce)),
+    });
+
+    emit(
+      flags,
+      verdict.anchored
+        ? `receipt is anchored on chain\n` +
+            `commitment: ${verdict.commitment}\n` +
+            `proof path: ${verdict.pathLength} levels\n\n` +
+            'The organizer included exactly this amount in a settlement the network\n' +
+            'accepted. Verifying it revealed the amount to nobody but you.'
+        : `receipt is NOT anchored on chain\ncommitment: ${verdict.commitment}\n${verdict.reason}`,
+      verdict,
+    );
+    process.exit(verdict.anchored ? 0 : 1);
   },
 
   async simulate(flags) {
