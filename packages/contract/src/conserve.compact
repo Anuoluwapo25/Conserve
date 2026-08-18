@@ -1,0 +1,200 @@
+// Conserve — privacy-preserving payroll and revenue splits on Midnight.
+//
+// The organization publishes a commitment to the total budget for a cycle.
+// The `settle` circuit then takes the recipient roster and the per-recipient
+// amounts as private witness data and proves, in zero knowledge, that:
+//
+//   1. the amounts sum to exactly the committed total (conservation),
+//   2. every recipient in the roster is distinct (no double payment),
+//   3. each recipient has a receipt commitment anchored in a Merkle tree.
+//
+// Nothing about who was paid or how much ever reaches the ledger. The public
+// state holds only the cycle id, the budget commitment, a settled flag, a set
+// of per-cycle recipient nullifiers, and the receipt tree.
+
+pragma language_version >= 0.17;
+
+import CompactStandardLibrary;
+
+// Roster slots per cycle. Every cycle writes exactly this many nullifiers and
+// receipts regardless of how many recipients are real, so the public footprint
+// of a settlement is constant and never leaks the size of the team. Unused
+// slots are filled client-side with a random recipient and a zero amount.
+export ledger MAX_RECIPIENTS: Uint<8>;
+
+export enum CycleStatus {
+  dormant,
+  open,
+  settled,
+}
+
+// One line of the payroll. Private in its entirety: only a commitment to it is
+// ever written to the ledger.
+export struct PayoutEntry {
+  recipient: Bytes<32>,
+  amount: Uint<64>,
+  nonce: Bytes<32>,
+}
+
+// ---------------------------------------------------------------------------
+// Public state
+// ---------------------------------------------------------------------------
+
+// Commitment to the organizer's secret key; gates the privileged circuits.
+export ledger organizer: Bytes<32>;
+
+// Monotonic cycle counter. Level 4 settles one cycle; the counter is already
+// in place for the recurring cycles that Level 5 adds.
+export ledger cycleId: Uint<64>;
+
+export ledger status: CycleStatus;
+
+// persistentCommit(totalBudget, budgetSalt) for the cycle currently open.
+export ledger budgetCommitment: Bytes<32>;
+
+// Per-cycle salted recipient nullifiers. Salting with a fresh per-cycle secret
+// keeps the same recipient unlinkable across cycles, while an auditor holding
+// the salt can re-derive them and confirm uniqueness independently.
+export ledger nullifiers: Set<Bytes<32>>;
+
+// Receipt commitments. A recipient who knows their own (amount, nonce) can
+// prove membership here — the basis for the Level 5 threshold proofs.
+export ledger receipts: MerkleTree<12, Bytes<32>>;
+
+export ledger settledCycles: Counter;
+
+// ---------------------------------------------------------------------------
+// Private witness data
+// ---------------------------------------------------------------------------
+
+witness organizerSecretKey(): Bytes<32>;
+witness payoutRoster(): Vector<16, PayoutEntry>;
+witness budgetTotal(): Uint<64>;
+witness budgetSalt(): Bytes<32>;
+witness cycleSalt(): Bytes<32>;
+
+// ---------------------------------------------------------------------------
+// Pure helpers — exported so clients derive the exact same values off-chain
+// ---------------------------------------------------------------------------
+
+export pure circuit organizerPublicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "conserve:organizer:v1"), sk]);
+}
+
+export pure circuit recipientNullifier(recipient: Bytes<32>, salt: Bytes<32>): Bytes<32> {
+  return persistentCommit<Bytes<32>>(recipient, salt);
+}
+
+export pure circuit receiptCommitment(
+  cid: Uint<64>,
+  recipient: Bytes<32>,
+  amount: Uint<64>,
+  nonce: Bytes<32>
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "conserve:receipt:v1"),
+    recipient,
+    nonce,
+    persistentHash<Vector<2, Field>>([cid as Field, amount as Field]),
+  ]);
+}
+
+export pure circuit budgetCommitmentOf(total: Uint<64>, salt: Bytes<32>): Bytes<32> {
+  return persistentCommit<Uint<64>>(total, salt);
+}
+
+// ---------------------------------------------------------------------------
+// Circuits
+// ---------------------------------------------------------------------------
+
+constructor(organizerPk: Bytes<32>) {
+  organizer = disclose(organizerPk);
+  MAX_RECIPIENTS = 16;
+  cycleId = 0;
+  status = CycleStatus.dormant;
+  budgetCommitment = default<Bytes<32>>;
+}
+
+// Open a new cycle by publishing the budget commitment. The total itself stays
+// off-chain; all the ledger learns is that some total was fixed before any
+// payout was decided, which is what makes the later conservation proof binding.
+export circuit openCycle(commitment: Bytes<32>): Uint<64> {
+  assert(status != CycleStatus.open, "conserve: a cycle is already open");
+  assert(
+    organizer == organizerPublicKey(disclose(organizerSecretKey())),
+    "conserve: caller is not the organizer"
+  );
+
+  cycleId = (cycleId + 1) as Uint<64>;
+  budgetCommitment = disclose(commitment);
+  status = CycleStatus.open;
+  return cycleId;
+}
+
+// The privacy-critical core. Proves the split is conservative and duplicate-free
+// without revealing a single recipient or amount.
+export circuit settle(): [] {
+  assert(status == CycleStatus.open, "conserve: no cycle is open");
+  assert(
+    organizer == organizerPublicKey(disclose(organizerSecretKey())),
+    "conserve: caller is not the organizer"
+  );
+
+  const roster = payoutRoster();
+  const total = budgetTotal();
+  const salt = cycleSalt();
+  const cid = cycleId;
+
+  // (1) The total being settled is the one committed to when the cycle opened.
+  assert(
+    budgetCommitment == budgetCommitmentOf(disclose(total), disclose(budgetSalt())),
+    "conserve: roster total does not match the committed budget"
+  );
+
+  // (2) Conservation: the per-recipient amounts sum to exactly that total.
+  // Field arithmetic avoids intermediate Uint<64> overflow; 16 entries bounded
+  // by 2^64 sum to at most 2^68, far below the field modulus, so the equality
+  // below is exact rather than modular.
+  const sum =
+    (roster[0].amount as Field) +
+    (roster[1].amount as Field) +
+    (roster[2].amount as Field) +
+    (roster[3].amount as Field) +
+    (roster[4].amount as Field) +
+    (roster[5].amount as Field) +
+    (roster[6].amount as Field) +
+    (roster[7].amount as Field) +
+    (roster[8].amount as Field) +
+    (roster[9].amount as Field) +
+    (roster[10].amount as Field) +
+    (roster[11].amount as Field) +
+    (roster[12].amount as Field) +
+    (roster[13].amount as Field) +
+    (roster[14].amount as Field) +
+    (roster[15].amount as Field);
+  assert(sum == total as Field, "conserve: payouts do not sum to the committed budget");
+
+  // (3) Uniqueness: every slot holds a distinct recipient, so nobody can be
+  // paid twice inside one cycle and no slot can be quietly reused.
+  for (const i of 0..16) {
+    for (const j of 0..16) {
+      assert(
+        i == j || roster[i].recipient != roster[j].recipient,
+        "conserve: a recipient appears more than once"
+      );
+    }
+  }
+
+  // (4) Publish the constant-size public trace: one salted nullifier and one
+  // receipt commitment per slot, in fixed order, with no data-dependent
+  // branching that could reveal how many slots are actually in use.
+  for (const i of 0..16) {
+    nullifiers.insert(disclose(recipientNullifier(roster[i].recipient, salt)));
+    receipts.insert(
+      disclose(receiptCommitment(cid, roster[i].recipient, roster[i].amount, roster[i].nonce))
+    );
+  }
+
+  status = CycleStatus.settled;
+  settledCycles.increment(1);
+}
