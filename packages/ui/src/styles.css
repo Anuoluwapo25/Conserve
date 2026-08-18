@@ -207,3 +207,21 @@ footer {
   font-size: 0.88rem;
   max-width: 68ch;
 }
+
+.lines.receipt {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .lines.receipt {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .lines.receipt input:nth-child(n + 3) {
+    grid-column: 1 / -1;
+  }
+}
+
+.commitment .note {
+  margin-top: 0.5rem;
+}

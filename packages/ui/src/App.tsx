@@ -10,6 +10,8 @@ import {
   total,
   validate,
 } from './payroll.js';
+import type { ReceiptVerdict } from '@conserve/api/view';
+import { type ReceiptInput, checkReceipt, emptyReceipt, receiptIssues } from './receipt.js';
 
 const NETWORKS: NetworkProfile[] = ['preprod', 'undeployed'];
 
@@ -187,6 +189,118 @@ function PayrollPanel() {
   );
 }
 
+function ReceiptPanel() {
+  const [network, setNetwork] = useState<NetworkProfile>('preprod');
+  const [address, setAddress] = useState('');
+  const [input, setInput] = useState<ReceiptInput>(emptyReceipt);
+  const [verdict, setVerdict] = useState<ReceiptVerdict | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const issues = useMemo(() => receiptIssues(input), [input]);
+  const set = (patch: Partial<ReceiptInput>) => setInput((current) => ({ ...current, ...patch }));
+
+  const run = useCallback(async () => {
+    setChecking(true);
+    setError(null);
+    setVerdict(null);
+    try {
+      setVerdict(await checkReceipt(network, address.trim(), input));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setChecking(false);
+    }
+  }, [network, address, input]);
+
+  return (
+    <section className="panel">
+      <header>
+        <h2>Check a receipt</h2>
+        <p>
+          For recipients. Paste what your employer gave you and confirm it is anchored on chain.
+          Nothing here is sent anywhere — the check runs against public state, in this tab.
+        </p>
+      </header>
+
+      <div className="row">
+        <select
+          value={network}
+          onChange={(event) => setNetwork(event.target.value as NetworkProfile)}
+          aria-label="Network for receipt check"
+        >
+          {NETWORKS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <input
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+          placeholder="Contract address"
+          spellCheck={false}
+          aria-label="Contract address for receipt check"
+        />
+      </div>
+
+      <div className="lines receipt">
+        <input
+          value={input.cycleId}
+          onChange={(event) => set({ cycleId: event.target.value })}
+          placeholder="Cycle"
+          inputMode="numeric"
+          aria-label="Cycle"
+        />
+        <input
+          value={input.amount}
+          onChange={(event) => set({ amount: event.target.value })}
+          placeholder="Amount"
+          inputMode="numeric"
+          aria-label="Amount"
+        />
+        <input
+          value={input.recipient}
+          onChange={(event) => set({ recipient: event.target.value })}
+          placeholder="Your 32-byte identifier"
+          spellCheck={false}
+          aria-label="Recipient identifier"
+        />
+        <input
+          value={input.nonce}
+          onChange={(event) => set({ nonce: event.target.value })}
+          placeholder="Nonce from your receipt"
+          spellCheck={false}
+          aria-label="Nonce"
+        />
+      </div>
+
+      <button
+        className="add"
+        onClick={run}
+        disabled={checking || issues.length > 0 || address.trim() === ''}
+      >
+        {checking ? 'Checking…' : 'Check'}
+      </button>
+
+      {issues.length > 0 && <p className="error">{issues[0]}</p>}
+      {error !== null && <p className="error">{error}</p>}
+
+      {verdict !== null && (
+        <div className="commitment">
+          <span>{verdict.anchored ? 'Anchored on chain' : 'Not found'}</span>
+          <code>{verdict.commitment}</code>
+          <p className="note">
+            {verdict.anchored
+              ? 'Your employer settled exactly this amount in a transaction the network accepted. Checking it revealed the amount to nobody.'
+              : verdict.reason}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   return (
     <main>
@@ -201,6 +315,7 @@ export default function App() {
       <div className="panels">
         <PayrollPanel />
         <ChainPanel />
+        <ReceiptPanel />
       </div>
 
       <footer>
