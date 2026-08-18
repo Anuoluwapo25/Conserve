@@ -41,6 +41,9 @@ export const walletConfiguration = (config: NetworkConfig) => ({
   indexerClientConnection: {
     indexerHttpUrl: config.indexerUrl,
     indexerWsUrl: config.indexerWsUrl,
+    // Without a keepalive the indexer drops an idle subscription and the SDK
+    // treats the close as a sync failure, retrying in a tight loop.
+    keepAlive: 10_000,
   },
   // A first sync replays every shielded event since genesis — on Preprod that
   // is millions. The defaults (size 10, spacing 4ms) let those events pile up
