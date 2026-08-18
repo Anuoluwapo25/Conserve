@@ -152,6 +152,7 @@ const connect = async (flags: Args['flags']) => {
   process.stderr.write('syncing wallet…');
   const wallet = await openWallet(config, keys);
   await wallet.facade.waitForSyncedState();
+  await wallet.save();
   process.stderr.write(' done\n');
 
   const providers = buildProviders({
@@ -207,6 +208,7 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
 
     const wallet = await openWallet(config, keys);
     const balances = await summariseWallet(wallet);
+    await wallet.save();
     emit(
       flags,
       `network:   ${config.networkId}\nnight:     ${addresses.night}\n` +

@@ -7,6 +7,8 @@
  * midnight-js wants when it builds a contract transaction.
  */
 
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import * as ledger from '@midnight-ntwrk/ledger-v8';
 import { InMemoryTransactionHistoryStorage } from '@midnight-ntwrk/wallet-sdk-abstractions';
 import { WalletEntrySchema, mergeWalletEntries } from '@midnight-ntwrk/wallet-sdk-facade';
@@ -40,6 +42,12 @@ export const walletConfiguration = (config: NetworkConfig) => ({
     indexerHttpUrl: config.indexerUrl,
     indexerWsUrl: config.indexerWsUrl,
   },
+  // A first sync replays every shielded event since genesis — on Preprod that
+  // is millions. The defaults (size 10, spacing 4ms) let those events pile up
+  // faster than they are applied and exhaust the heap. Larger batches applied
+  // with more space between them keep peak memory bounded at the cost of a
+  // slower first run; later runs restore from the cached state instead.
+  batchUpdates: { size: 200, timeout: 50, spacing: 25 },
   relayURL: new URL(config.nodeUrl),
   provingServerUrl: new URL(config.proofServerUrl),
   txHistoryStorage: new InMemoryTransactionHistoryStorage(WalletEntrySchema, mergeWalletEntries),
@@ -52,23 +60,50 @@ export const walletConfiguration = (config: NetworkConfig) => ({
 export type OperatorWallet = {
   readonly facade: WalletFacade;
   readonly keys: OperatorKeys;
+  /** Writes the synced wallet state so the next run does not replay the chain. */
+  save(): Promise<void>;
   close(): Promise<void>;
+};
+
+/** Cached wallet state, keyed by network so profiles never cross-contaminate. */
+type WalletCache = { shielded: string; unshielded: string; dust: string };
+
+const cachePath = (config: NetworkConfig, dir: string): string =>
+  resolve(dir, `wallet-${config.networkId}.json`);
+
+const readCache = async (path: string): Promise<WalletCache | undefined> => {
+  try {
+    return JSON.parse(await readFile(path, 'utf8')) as WalletCache;
+  } catch {
+    return undefined;
+  }
 };
 
 export const openWallet = async (
   config: NetworkConfig,
   keys: OperatorKeys,
+  stateDir = '.conserve-state',
 ): Promise<OperatorWallet> => {
   const configuration = walletConfiguration(config);
   const dustParameters = ledger.LedgerParameters.initialParameters().dust;
   const nightKeystore = createKeystore(keys.nightSecret, config.networkId);
+  const path = cachePath(config, stateDir);
+  const cache = await readCache(path);
 
   const facade = await WalletFacade.init({
     configuration,
-    shielded: (c) => ShieldedWallet(c).startWithSecretKeys(keys.shieldedSecretKeys),
+    shielded: (c) =>
+      cache === undefined
+        ? ShieldedWallet(c).startWithSecretKeys(keys.shieldedSecretKeys)
+        : ShieldedWallet(c).restore(cache.shielded),
     unshielded: (c) =>
-      UnshieldedWallet(c).startWithPublicKey(PublicKey.fromKeyStore(nightKeystore)),
-    dust: (c) => DustWallet(c).startWithSecretKey(keys.dustSecretKey, dustParameters),
+      cache === undefined
+        ? UnshieldedWallet(c).startWithPublicKey(PublicKey.fromKeyStore(nightKeystore))
+        : UnshieldedWallet(c).restore(cache.unshielded),
+    dust: (c) =>
+      cache === undefined
+        ? DustWallet(c).startWithSecretKey(keys.dustSecretKey, dustParameters)
+        : DustWallet(c).restore(cache.dust),
   });
 
   await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
@@ -76,6 +111,19 @@ export const openWallet = async (
   return {
     facade,
     keys,
+    save: async () => {
+      await mkdir(stateDir, { recursive: true });
+      const [shielded, unshielded, dust] = await Promise.all([
+        facade.shielded.serializeState(),
+        facade.unshielded.serializeState(),
+        facade.dust.serializeState(),
+      ]);
+      // Holds observed chain state rather than keys, but it does reveal which
+      // coins are yours, so keep it owner-readable.
+      await writeFile(path, `${JSON.stringify({ shielded, unshielded, dust })}\n`, {
+        mode: 0o600,
+      });
+    },
     close: () => facade.stop(),
   };
 };
