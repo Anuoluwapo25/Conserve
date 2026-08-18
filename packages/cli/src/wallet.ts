@@ -1,84 +1,135 @@
 /**
- * Headless wallet for the operator: builds a wallet from a seed, waits for it
- * to sync, and adapts it to the `WalletProvider` / `MidnightProvider` pair that
- * midnight-js expects.
+ * Operator wallet, built on the Midnight wallet SDK.
+ *
+ * The facade coordinates the three wallets a Midnight account needs — shielded
+ * (Zswap coins), unshielded (NIGHT), and Dust (which pays fees) — and this
+ * module adapts it to the `WalletProvider` / `MidnightProvider` pair that
+ * midnight-js wants when it builds a contract transaction.
  */
 
-import { WalletBuilder } from '@midnight-ntwrk/wallet';
-import type { Wallet, WalletState } from '@midnight-ntwrk/wallet-api';
-import type { Resource } from '@midnight-ntwrk/wallet';
+import * as ledger from '@midnight-ntwrk/ledger-v8';
+import { InMemoryTransactionHistoryStorage } from '@midnight-ntwrk/wallet-sdk-abstractions';
+import { WalletEntrySchema, mergeWalletEntries } from '@midnight-ntwrk/wallet-sdk-facade';
+import { DustWallet } from '@midnight-ntwrk/wallet-sdk-dust-wallet';
+import { WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
+import { ShieldedWallet } from '@midnight-ntwrk/wallet-sdk-shielded';
+import {
+  PublicKey,
+  UnshieldedWallet,
+  createKeystore,
+} from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
 import type { MidnightProvider, WalletProvider } from '@midnight-ntwrk/midnight-js-types';
 import type { NetworkConfig } from '@conserve/api';
-import { filter, firstValueFrom, interval, map, take, tap, throwError, timeout } from 'rxjs';
-import { concat, of } from 'rxjs';
+import type { OperatorKeys } from './keys.js';
 
-export type OperatorWallet = Wallet & Resource;
+/** How far ahead of now a Conserve transaction stays valid. */
+const TX_TTL_MINUTES = 30;
 
-/** tDUST is quoted in the smallest unit; this is the display divisor. */
-export const DUST_DECIMALS = 1_000_000n;
+/** NIGHT and DUST are quoted in their smallest unit. */
+const UNIT_DECIMALS = 1_000_000n;
 
-export const formatDust = (amount: bigint): string => {
-  const whole = amount / DUST_DECIMALS;
-  const fraction = (amount % DUST_DECIMALS).toString().padStart(6, '0').replace(/0+$/, '');
+export const formatUnits = (amount: bigint): string => {
+  const whole = amount / UNIT_DECIMALS;
+  const fraction = (amount % UNIT_DECIMALS).toString().padStart(6, '0').replace(/0+$/, '');
   return fraction.length > 0 ? `${whole}.${fraction}` : `${whole}`;
 };
 
-export const buildWallet = async (config: NetworkConfig, seed: string): Promise<OperatorWallet> => {
-  const wallet = await WalletBuilder.build(
-    config.indexerUrl,
-    config.indexerWsUrl,
-    config.proofServerUrl,
-    config.nodeUrl,
-    seed,
-    config.networkId as never,
-    'error',
-  );
-  wallet.start();
-  return wallet;
-};
-
-/**
- * Blocks until the wallet has caught up with the chain tip. A wallet that is
- * still syncing reports a zero balance and produces transactions the node
- * rejects, so every command waits here first.
- */
-export const waitForSync = async (
-  wallet: OperatorWallet,
-  onProgress?: (state: WalletState) => void,
-): Promise<WalletState> =>
-  firstValueFrom(
-    wallet.state().pipe(
-      tap((state) => onProgress?.(state)),
-      filter((state) => state.syncProgress?.synced === true),
-      take(1),
-      timeout({
-        each: 15 * 60_000,
-        with: () => throwError(() => new Error('wallet did not finish syncing within 15 minutes')),
-      }),
-    ),
-  );
-
-export const walletProviders = (
-  wallet: OperatorWallet,
-  coinPublicKey: string,
-  encryptionPublicKey: string,
-): { walletProvider: WalletProvider; midnightProvider: MidnightProvider } => ({
-  walletProvider: {
-    getCoinPublicKey: () => coinPublicKey as never,
-    getEncryptionPublicKey: () => encryptionPublicKey as never,
-    balanceTx: async (tx, ttl) => {
-      // `ttl` is honoured by the ledger-side balancing; the wallet SDK derives its own.
-      void ttl;
-      const recipe = await wallet.balanceTransaction(tx as never, []);
-      const proven = await wallet.proveTransaction(recipe);
-      return proven as never;
-    },
+export const walletConfiguration = (config: NetworkConfig) => ({
+  networkId: config.networkId,
+  indexerClientConnection: {
+    indexerHttpUrl: config.indexerUrl,
+    indexerWsUrl: config.indexerWsUrl,
   },
-  midnightProvider: {
-    submitTx: (tx) => wallet.submitTransaction(tx as never) as never,
-  },
+  relayURL: new URL(config.nodeUrl),
+  provingServerUrl: new URL(config.proofServerUrl),
+  txHistoryStorage: new InMemoryTransactionHistoryStorage(WalletEntrySchema, mergeWalletEntries),
+  // Fees are paid in DUST, which accrues against registered NIGHT. The margin
+  // is how many blocks of headroom to leave when deciding a transaction is
+  // affordable.
+  costParameters: { feeBlocksMargin: 5 },
 });
 
-/** Emits a heartbeat while a long operation runs, so the CLI never looks hung. */
-export const heartbeat = (label: string, everyMs = 10_000) =>
-  concat(of(0), interval(everyMs)).pipe(map((tick) => `${label}${'.'.repeat((tick % 3) + 1)}`));
+export type OperatorWallet = {
+  readonly facade: WalletFacade;
+  readonly keys: OperatorKeys;
+  close(): Promise<void>;
+};
+
+export const openWallet = async (
+  config: NetworkConfig,
+  keys: OperatorKeys,
+): Promise<OperatorWallet> => {
+  const configuration = walletConfiguration(config);
+  const dustParameters = ledger.LedgerParameters.initialParameters().dust;
+  const nightKeystore = createKeystore(keys.nightSecret, config.networkId);
+
+  const facade = await WalletFacade.init({
+    configuration,
+    shielded: (c) => ShieldedWallet(c).startWithSecretKeys(keys.shieldedSecretKeys),
+    unshielded: (c) => UnshieldedWallet(c).startWithPublicKey(PublicKey.fromKeyStore(nightKeystore)),
+    dust: (c) => DustWallet(c).startWithSecretKey(keys.dustSecretKey, dustParameters),
+  });
+
+  await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
+
+  return {
+    facade,
+    keys,
+    close: () => facade.stop(),
+  };
+};
+
+const ttl = (): Date => new Date(Date.now() + TX_TTL_MINUTES * 60_000);
+
+/**
+ * Adapts the facade to midnight-js.
+ *
+ * midnight-js hands us an unbound transaction carrying the Conserve call and
+ * expects it back balanced and finalized; the facade covers fees from DUST and
+ * signs the NIGHT segment along the way.
+ */
+export const walletProviders = (
+  wallet: OperatorWallet,
+): { walletProvider: WalletProvider; midnightProvider: MidnightProvider } => {
+  const secretKeys = {
+    shieldedSecretKeys: wallet.keys.shieldedSecretKeys,
+    dustSecretKey: wallet.keys.dustSecretKey,
+  };
+  const sign = (data: Uint8Array): ledger.Signature =>
+    ledger.signData(wallet.keys.nightSigningKey, data);
+
+  return {
+    walletProvider: {
+      getCoinPublicKey: () => wallet.keys.shieldedSecretKeys.coinPublicKey as never,
+      getEncryptionPublicKey: () => wallet.keys.shieldedSecretKeys.encryptionPublicKey as never,
+      balanceTx: async (tx, deadline) => {
+        const recipe = await wallet.facade.balanceUnboundTransaction(tx as never, secretKeys, {
+          ttl: deadline ?? ttl(),
+        });
+        const signed = await wallet.facade.signRecipe(recipe, sign);
+        return (await wallet.facade.finalizeRecipe(signed)) as never;
+      },
+    },
+    midnightProvider: {
+      submitTx: (tx) => wallet.facade.submitTransaction(tx as never) as never,
+    },
+  };
+};
+
+export type WalletSummary = {
+  readonly night: bigint;
+  readonly dust: bigint;
+  readonly synced: boolean;
+};
+
+export const summariseWallet = async (wallet: OperatorWallet): Promise<WalletSummary> => {
+  const state = await wallet.facade.waitForSyncedState();
+  const night = (Object.values(state.unshielded.balances) as bigint[]).reduce(
+    (a, b) => a + b,
+    0n,
+  );
+  // DUST accrues over time against registered NIGHT, so its balance is a
+  // function of the moment you ask.
+  const dust = state.dust.balance(new Date());
+  return { night, dust, synced: state.isSynced };
+};
