@@ -18,7 +18,7 @@ nor the recipients nor even how many people were paid.
 
 Anyone can verify the cycle. Nobody can read the payroll.
 
-- Product updates: **[@ConserveDApp on X](https://x.com/ConserveDApp)**
+- Product updates on X: **`<!-- TODO: create the product X profile and link it here -->`**
 - Documentation: [architecture](docs/architecture.md) · [privacy model](docs/privacy-model.md) · [setup](docs/setup.md) · [usage](docs/usage.md) · [roadmap](docs/roadmap.md)
 
 ## Deployment
@@ -131,16 +131,25 @@ Full walkthrough in [docs/usage.md](docs/usage.md); prerequisites and funding in
 
 ## Deployment status
 
-The circuits, the CLI and the dashboard are complete and tested. Deployment to
-Preprod is pending two steps that need a human:
+The circuits, the CLI and the dashboard are complete, and everything that can be
+checked without funds is checked: 21 circuit tests, a clean build, and a CI step
+that fails if the public footprint ever depends on headcount.
 
-1. **Funding.** The faucet at <https://faucet.preprod.midnight.network> is a web
-   form. Run `conserve address --offline` and paste the `night:` address.
-2. **A running proof server.** `docker run … midnightnetwork/proof-server` — see
+Three steps remain before a Preprod address can go in the table above, and each
+needs a human:
+
+1. **Fund the wallet.** The faucet at <https://faucet.preprod.midnight.network>
+   is a web form. Run `conserve address --offline` and paste the `night:`
+   address, then register the NIGHT UTXOs for DUST generation so fees can be
+   paid.
+2. **Start a proof server.** `docker run … midnightnetwork/proof-server` — see
    [docs/setup.md](docs/setup.md).
+3. **First wallet sync.** A fresh wallet replays every shielded event since
+   genesis, which on Preprod takes a long while and needs
+   `NODE_OPTIONS=--max-old-space-size=8192`. It only happens once — the synced
+   state is cached in `.conserve-state`.
 
-Once both are done, `conserve deploy` prints the contract address, which goes in
-the table above.
+Then `conserve deploy` prints the contract address.
 
 ## Honest limitations
 
