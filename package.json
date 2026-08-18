@@ -1,0 +1,29 @@
+{
+  "name": "conserve",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Privacy-preserving payroll and revenue splits on Midnight: verifiable totals, hidden individual amounts.",
+  "type": "module",
+  "workspaces": [
+    "packages/contract",
+    "packages/api",
+    "packages/cli",
+    "packages/ui"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "compact": "npm run compact -w @conserve/contract",
+    "build": "npm run build -w @conserve/contract && npm run build -w @conserve/api && npm run build -w @conserve/cli",
+    "test": "npm run test -w @conserve/contract",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  }
+}
