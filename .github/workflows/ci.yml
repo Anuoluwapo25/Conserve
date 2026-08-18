@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPACT_VERSION: '0.31.1'
+
+jobs:
+  build:
+    name: build, compile circuits and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The compiled circuits are deterministic in the contract source, so a hit
+      # here skips several minutes of proving-key generation.
+      - name: Cache compiled circuits
+        id: circuits
+        uses: actions/cache@v4
+        with:
+          path: packages/contract/managed
+          key: circuits-${{ env.COMPACT_VERSION }}-${{ hashFiles('packages/contract/src/conserve.compact') }}
+
+      - name: Cache Compact toolchain
+        if: steps.circuits.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.compact
+          key: compact-${{ env.COMPACT_VERSION }}
+
+      - name: Install Compact toolchain
+        if: steps.circuits.outputs.cache-hit != 'true'
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Select Compact compiler
+        if: steps.circuits.outputs.cache-hit != 'true'
+        run: |
+          compact update "$COMPACT_VERSION"
+          compact --version
+          compact compile --version || true
+
+      - run: npm ci
+
+      - name: Compile circuits
+        if: steps.circuits.outputs.cache-hit != 'true'
+        run: npm run compact
+
+      - name: Check circuit formatting
+        if: steps.circuits.outputs.cache-hit != 'true'
+        run: compact format --check packages/contract/src/conserve.compact
+
+      - run: npm run build
+
+      - run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Check formatting
+        run: npm run format:check
+
+      # Surfaces the property the whole product rests on: what a settlement
+      # writes on chain does not depend on how many people were paid.
+      - name: Verify constant public footprint
+        run: |
+          node packages/cli/dist/main.js simulate --json \
+            --payroll examples/payroll.example.json > small.json
+          node packages/cli/dist/main.js simulate --json \
+            --payroll examples/payroll.large.json > large.json
+          node -e '
+            const small = require("./small.json").publicState;
+            const large = require("./large.json").publicState;
+            const fields = ["rosterWidth", "nullifierCount", "receiptsAnchored"];
+            for (const field of fields) {
+              if (small[field] !== large[field]) {
+                console.error(`leak: ${field} differs (${small[field]} vs ${large[field]})`);
+                process.exit(1);
+              }
+            }
+            console.log("public footprint is identical for 3 and 12 recipients");
+          '
+
+  contract-artifacts:
+    name: publish circuit artifacts
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/cache@v4
+        with:
+          path: packages/contract/managed
+          key: circuits-${{ env.COMPACT_VERSION }}-${{ hashFiles('packages/contract/src/conserve.compact') }}
+
+      - run: npm ci
+      - run: npm run compact
+      - run: npm run build
+
+      # The verifier key is what a third party needs to check a Conserve proof
+      # themselves, so every build on main publishes it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conserve-verifier-keys
+          path: |
+            packages/contract/managed/conserve/keys/*.verifier
+            packages/contract/managed/conserve/compiler/contract-info.json
+          if-no-files-found: error
