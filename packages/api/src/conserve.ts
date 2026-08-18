@@ -18,7 +18,6 @@ import {
   type Ledger,
   type Payout,
   type ReceiptRecord,
-  CycleStatus,
   assertRosterValid,
   ledger,
   padRoster,
@@ -31,8 +30,7 @@ import { type ConserveContract, conserveCompiledContract } from './contract.js';
 import type { ConserveProviders } from './providers.js';
 
 export type ConserveDeployment =
-  | DeployedContract<ConserveContract>
-  | FoundContract<ConserveContract>;
+  DeployedContract<ConserveContract> | FoundContract<ConserveContract>;
 
 /** Deploys a fresh payroll contract bound to the organizer's key. */
 export const deploy = async (
@@ -153,26 +151,4 @@ export const publicState = async (
   return ledger(state.data);
 };
 
-/** Everything an outside observer can learn about a cycle. */
-export type PublicCycleView = {
-  readonly cycleId: bigint;
-  readonly status: string;
-  readonly budgetCommitment: string;
-  readonly settledCycles: bigint;
-  readonly nullifierCount: bigint;
-  readonly receiptsAnchored: bigint;
-  readonly rosterWidth: bigint;
-};
-
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-
-export const summarise = (state: Ledger): PublicCycleView => ({
-  cycleId: state.cycleId,
-  status: CycleStatus[state.status] ?? String(state.status),
-  budgetCommitment: hex(state.budgetCommitment),
-  settledCycles: state.settledCycles,
-  nullifierCount: state.nullifiers.size(),
-  receiptsAnchored: state.receipts.firstFree(),
-  rosterWidth: state.MAX_RECIPIENTS,
-});
+export { type PublicCycleView, hex, summarise } from './view.js';

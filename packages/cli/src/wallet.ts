@@ -23,10 +23,7 @@ export const formatDust = (amount: bigint): string => {
   return fraction.length > 0 ? `${whole}.${fraction}` : `${whole}`;
 };
 
-export const buildWallet = async (
-  config: NetworkConfig,
-  seed: string,
-): Promise<OperatorWallet> => {
+export const buildWallet = async (config: NetworkConfig, seed: string): Promise<OperatorWallet> => {
   const wallet = await WalletBuilder.build(
     config.indexerUrl,
     config.indexerWsUrl,

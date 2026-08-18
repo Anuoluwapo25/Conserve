@@ -224,9 +224,7 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
       flags,
       `settled\ntx: ${result.txId} @ block ${result.blockHeight}\n` +
         `${receipts.length} receipts anchored — hand each recipient their own line:\n` +
-        receipts
-          .map((r) => `  ${r.label}: commitment ${r.commitment} nonce ${r.nonce}`)
-          .join('\n'),
+        receipts.map((r) => `  ${r.label}: commitment ${r.commitment} nonce ${r.nonce}`).join('\n'),
       { txId: result.txId, blockHeight: result.blockHeight, receipts },
     );
     await wallet.close();
@@ -234,9 +232,8 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
 
   async status(flags) {
     const config = networkConfig(profileOf(flags));
-    const { indexerPublicDataProvider } = await import(
-      '@midnight-ntwrk/midnight-js-indexer-public-data-provider'
-    );
+    const { indexerPublicDataProvider } =
+      await import('@midnight-ntwrk/midnight-js-indexer-public-data-provider');
     const { setNetworkId } = await import('@midnight-ntwrk/midnight-js-network-id');
     setNetworkId(config.networkId);
     const providers = {
