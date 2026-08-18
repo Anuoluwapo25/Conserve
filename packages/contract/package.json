@@ -1,0 +1,30 @@
+{
+  "name": "@conserve/contract",
+  "version": "0.4.0",
+  "description": "Compact contract and witness bindings for Conserve.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./managed/*": "./managed/*"
+  },
+  "files": ["dist", "managed", "src"],
+  "scripts": {
+    "compact": "node scripts/compile.mjs",
+    "build": "npm run compact && tsc -b",
+    "test": "npm run compact && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}
