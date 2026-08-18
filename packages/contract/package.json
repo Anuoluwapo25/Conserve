@@ -10,9 +10,17 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./managed/*": "./managed/*"
+    "./managed/*": "./managed/*",
+    "./simulator": {
+      "types": "./dist/simulator.d.ts",
+      "default": "./dist/simulator.js"
+    }
   },
-  "files": ["dist", "managed", "src"],
+  "files": [
+    "dist",
+    "managed",
+    "src"
+  ],
   "scripts": {
     "compact": "node scripts/compile.mjs",
     "build": "npm run compact && tsc -b",

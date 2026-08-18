@@ -1,0 +1,28 @@
+{
+  "name": "@conserve/cli",
+  "version": "0.4.0",
+  "description": "Headless Conserve operator: deploy, open and settle payroll cycles on Preprod.",
+  "type": "module",
+  "bin": {
+    "conserve": "./dist/main.js"
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@conserve/api": "0.4.0",
+    "@conserve/contract": "0.4.0",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@midnight-ntwrk/wallet": "5.0.0",
+    "@midnight-ntwrk/wallet-api": "5.0.0",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}
