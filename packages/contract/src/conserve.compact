@@ -68,9 +68,13 @@ export ledger settledCycles: Counter;
 // ---------------------------------------------------------------------------
 
 witness organizerSecretKey(): Bytes<32>;
+
 witness payoutRoster(): Vector<16, PayoutEntry>;
+
 witness budgetTotal(): Uint<64>;
+
 witness budgetSalt(): Bytes<32>;
+
 witness cycleSalt(): Bytes<32>;
 
 // ---------------------------------------------------------------------------
@@ -86,17 +90,17 @@ export pure circuit recipientNullifier(recipient: Bytes<32>, salt: Bytes<32>): B
 }
 
 export pure circuit receiptCommitment(
-  cid: Uint<64>,
-  recipient: Bytes<32>,
-  amount: Uint<64>,
-  nonce: Bytes<32>
-): Bytes<32> {
-  return persistentHash<Vector<4, Bytes<32>>>([
-    pad(32, "conserve:receipt:v1"),
-    recipient,
-    nonce,
-    persistentHash<Vector<2, Field>>([cid as Field, amount as Field]),
-  ]);
+                      cid: Uint<64>,
+                      recipient: Bytes<32>,
+                      amount: Uint<64>,
+                      nonce: Bytes<32>
+                      ): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>(
+           [pad(32, "conserve:receipt:v1"),
+            recipient,
+            nonce,
+            persistentHash<Vector<2, Field>>([cid as Field, amount as Field]),]
+           );
 }
 
 export pure circuit budgetCommitmentOf(total: Uint<64>, salt: Bytes<32>): Bytes<32> {
@@ -120,10 +124,9 @@ constructor(organizerPk: Bytes<32>) {
 // payout was decided, which is what makes the later conservation proof binding.
 export circuit openCycle(commitment: Bytes<32>): Uint<64> {
   assert(status != CycleStatus.open, "conserve: a cycle is already open");
-  assert(
-    organizer == organizerPublicKey(disclose(organizerSecretKey())),
-    "conserve: caller is not the organizer"
-  );
+  assert(organizer == organizerPublicKey(disclose(organizerSecretKey())),
+         "conserve: caller is not the organizer"
+         );
 
   cycleId = (cycleId + 1) as Uint<64>;
   budgetCommitment = disclose(commitment);
@@ -135,10 +138,9 @@ export circuit openCycle(commitment: Bytes<32>): Uint<64> {
 // without revealing a single recipient or amount.
 export circuit settle(): [] {
   assert(status == CycleStatus.open, "conserve: no cycle is open");
-  assert(
-    organizer == organizerPublicKey(disclose(organizerSecretKey())),
-    "conserve: caller is not the organizer"
-  );
+  assert(organizer == organizerPublicKey(disclose(organizerSecretKey())),
+         "conserve: caller is not the organizer"
+         );
 
   const roster = payoutRoster();
   const total = budgetTotal();
@@ -146,42 +148,39 @@ export circuit settle(): [] {
   const cid = cycleId;
 
   // (1) The total being settled is the one committed to when the cycle opened.
-  assert(
-    budgetCommitment == budgetCommitmentOf(disclose(total), disclose(budgetSalt())),
-    "conserve: roster total does not match the committed budget"
-  );
+  assert(budgetCommitment == budgetCommitmentOf(disclose(total), disclose(budgetSalt())),
+         "conserve: roster total does not match the committed budget"
+         );
 
   // (2) Conservation: the per-recipient amounts sum to exactly that total.
   // Field arithmetic avoids intermediate Uint<64> overflow; 16 entries bounded
   // by 2^64 sum to at most 2^68, far below the field modulus, so the equality
   // below is exact rather than modular.
-  const sum =
-    (roster[0].amount as Field) +
-    (roster[1].amount as Field) +
-    (roster[2].amount as Field) +
-    (roster[3].amount as Field) +
-    (roster[4].amount as Field) +
-    (roster[5].amount as Field) +
-    (roster[6].amount as Field) +
-    (roster[7].amount as Field) +
-    (roster[8].amount as Field) +
-    (roster[9].amount as Field) +
-    (roster[10].amount as Field) +
-    (roster[11].amount as Field) +
-    (roster[12].amount as Field) +
-    (roster[13].amount as Field) +
-    (roster[14].amount as Field) +
-    (roster[15].amount as Field);
+  const sum = (roster[0].amount as Field) +
+              (roster[1].amount as Field) +
+              (roster[2].amount as Field) +
+              (roster[3].amount as Field) +
+              (roster[4].amount as Field) +
+              (roster[5].amount as Field) +
+              (roster[6].amount as Field) +
+              (roster[7].amount as Field) +
+              (roster[8].amount as Field) +
+              (roster[9].amount as Field) +
+              (roster[10].amount as Field) +
+              (roster[11].amount as Field) +
+              (roster[12].amount as Field) +
+              (roster[13].amount as Field) +
+              (roster[14].amount as Field) +
+              (roster[15].amount as Field);
   assert(sum == total as Field, "conserve: payouts do not sum to the committed budget");
 
   // (3) Uniqueness: every slot holds a distinct recipient, so nobody can be
   // paid twice inside one cycle and no slot can be quietly reused.
   for (const i of 0..16) {
     for (const j of 0..16) {
-      assert(
-        i == j || roster[i].recipient != roster[j].recipient,
-        "conserve: a recipient appears more than once"
-      );
+      assert(i == j || roster[i].recipient != roster[j].recipient,
+             "conserve: a recipient appears more than once"
+             );
     }
   }
 
@@ -192,7 +191,7 @@ export circuit settle(): [] {
     nullifiers.insert(disclose(recipientNullifier(roster[i].recipient, salt)));
     receipts.insert(
       disclose(receiptCommitment(cid, roster[i].recipient, roster[i].amount, roster[i].nonce))
-    );
+      );
   }
 
   status = CycleStatus.settled;

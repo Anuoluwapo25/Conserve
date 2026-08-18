@@ -1,0 +1,65 @@
+{
+  "budget": "12000",
+  "payouts": [
+    {
+      "label": "eng-1",
+      "recipient": "564eb906a97c06374e3ec0d6416e4073f5c570b0b47bea88b6d68fef49732eee",
+      "amount": "1500"
+    },
+    {
+      "label": "eng-2",
+      "recipient": "aab075754e22a56fcd13293211be5617beeb32d3105a9be94cf7bf85c99999ad",
+      "amount": "1400"
+    },
+    {
+      "label": "eng-3",
+      "recipient": "40d81f7a2b6b83ffc94e695329b81a4f2c064f309cea6c85a336585024f76790",
+      "amount": "1300"
+    },
+    {
+      "label": "design",
+      "recipient": "61debb072259c77b0381beab79a5d0f07a74e4df07872fce72b4cd56dba59ec6",
+      "amount": "1200"
+    },
+    {
+      "label": "pm",
+      "recipient": "e417eabd6abfcf2ba9535d122ffe535f77221f93856b895f80398b4fd62f0314",
+      "amount": "1100"
+    },
+    {
+      "label": "qa",
+      "recipient": "7c18f412ccaddf54faa900857902a780049d8c04f958867039c2e0a916e342cf",
+      "amount": "1000"
+    },
+    {
+      "label": "devrel",
+      "recipient": "65cd8b76649bf8a00fb78a6ff57c26dcadee43035ae8794b001bfad2f1946018",
+      "amount": "900"
+    },
+    {
+      "label": "ops",
+      "recipient": "c87ce6d3ab597952b38e8de74d8e49beedd03e3490a3dc7d5b9aa1bb977eb60b",
+      "amount": "800"
+    },
+    {
+      "label": "support",
+      "recipient": "f0b9a8a55a63fde4c08ddbbeabba2fc2fb7b49bc258773851b8379bd7c372dc1",
+      "amount": "700"
+    },
+    {
+      "label": "finance",
+      "recipient": "2da27625f25aeee168dd5eecd8633ece6a9306ec70d73bc0c8ead06bdc5afe7f",
+      "amount": "600"
+    },
+    {
+      "label": "contract-a",
+      "recipient": "77104f7ddc918716059d1db329817a54ee98337a09051335b068adfa1dbd4be2",
+      "amount": "500"
+    },
+    {
+      "label": "contract-b",
+      "recipient": "1517a07dd7a3115fd3126d00ff058799e858fb077cfc49ad5abbdbc956e20df1",
+      "amount": "1000"
+    }
+  ]
+}
