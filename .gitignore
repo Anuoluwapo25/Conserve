@@ -10,3 +10,4 @@ coverage/
 .vite/
 packages/ui/dist/
 packages/contract/managed/
+.conserve-state/
