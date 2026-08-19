@@ -33,13 +33,13 @@ jobs:
       # decides whether there is any work to do, which is the one check that
       # survives a cache restore, a fresh clone and a branch switch alike.
       - name: Cache compiled circuits
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: packages/contract/managed
           key: circuits-${{ env.COMPACT_VERSION }}-${{ hashFiles('packages/contract/src/conserve.compact') }}
 
       - name: Cache Compact toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.compact
           key: compact-${{ env.COMPACT_VERSION }}
