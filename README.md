@@ -120,7 +120,6 @@ npm test                                          # 21 circuit tests, no network
 conserve address --offline                        # derive a fundable address
 conserve deploy                                   # deploy to Preprod
 conserve open   --contract <addr> --payroll p.json
-conserve settle --contract <addr> --payroll p.json
 conserve settle --contract <addr> --payroll p.json --receipts ./receipts
 conserve verify --contract <addr> --receipt receipts/cycle-1-core-dev.json
 conserve status --contract <addr>                 # audit; needs only an indexer
@@ -144,12 +143,25 @@ needs a human:
    paid.
 2. **Start a proof server.** `docker run … midnightnetwork/proof-server` — see
    [docs/setup.md](docs/setup.md).
-3. **First wallet sync.** A fresh wallet replays every shielded event since
-   genesis, which on Preprod takes a long while and needs
-   `NODE_OPTIONS=--max-old-space-size=8192`. It only happens once — the synced
-   state is cached in `.conserve-state`.
+3. **A wallet that finishes syncing.** This one is an open problem rather than
+   a chore. A fresh wallet replays every shielded event since genesis, and on
+   Preprod it does not converge: left running for 17 hours it never reached a
+   synced state, accumulating periodic `Wallet.Sync: [object CloseEvent]`
+   reconnects across the shielded and unshielded wallets (roughly one every 15
+   minutes) and never writing its state cache.
 
-Then `conserve deploy` prints the contract address.
+   What has been ruled out: the transport is fine — the same GraphQL
+   subscription over both `ws` and Node's built-in WebSocket stays open and
+   returns data. Adding a keepalive cut the errors from a tight retry loop to
+   occasional reconnects, and raising the heap to 8 GB stopped the out-of-memory
+   deaths. Neither made it finish.
+
+   Until this is resolved, deploying via the DApp connector from a browser
+   wallet is the more promising route, since it sidesteps headless sync
+   entirely. That work is already on the roadmap for Level 6.
+
+Once a funded, synced wallet exists, `conserve deploy` prints the contract
+address.
 
 ## Honest limitations
 
