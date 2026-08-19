@@ -27,44 +27,40 @@ jobs:
           node-version: 22
           cache: npm
 
-      # The compiled circuits are deterministic in the contract source, so a hit
-      # here skips several minutes of proving-key generation.
+      # Key generation is the expensive part of a build, and it depends only
+      # on the contract source, so the artifacts are cached on its hash. The
+      # compile step still runs on a hit — the stamp inside the artifacts
+      # decides whether there is any work to do, which is the one check that
+      # survives a cache restore, a fresh clone and a branch switch alike.
       - name: Cache compiled circuits
-        id: circuits
         uses: actions/cache@v4
         with:
           path: packages/contract/managed
           key: circuits-${{ env.COMPACT_VERSION }}-${{ hashFiles('packages/contract/src/conserve.compact') }}
 
       - name: Cache Compact toolchain
-        if: steps.circuits.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.compact
           key: compact-${{ env.COMPACT_VERSION }}
 
       - name: Install Compact toolchain
-        if: steps.circuits.outputs.cache-hit != 'true'
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Select Compact compiler
-        if: steps.circuits.outputs.cache-hit != 'true'
         run: |
           compact update "$COMPACT_VERSION"
           compact --version
-          compact compile --version || true
 
       - run: npm ci
 
       - name: Compile circuits
-        if: steps.circuits.outputs.cache-hit != 'true'
         run: npm run compact
 
       - name: Check circuit formatting
-        if: steps.circuits.outputs.cache-hit != 'true'
         run: compact format --check packages/contract/src/conserve.compact
 
       - run: npm run build
@@ -98,32 +94,14 @@ jobs:
             console.log("public footprint is identical for 3 and 12 recipients");
           '
 
-  contract-artifacts:
-    name: publish circuit artifacts
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - uses: actions/cache@v4
-        with:
-          path: packages/contract/managed
-          key: circuits-${{ env.COMPACT_VERSION }}-${{ hashFiles('packages/contract/src/conserve.compact') }}
-
-      - run: npm ci
-      - run: npm run compact
-      - run: npm run build
-
       # The verifier key is what a third party needs to check a Conserve proof
-      # themselves, so every build on main publishes it.
-      - uses: actions/upload-artifact@v4
+      # themselves, so every build on main publishes it. This lives in the build
+      # job rather than a job of its own: a separate job would have to restore
+      # the circuits cache and reinstall the toolchain to reproduce artifacts
+      # that already exist right here.
+      - name: Publish verifier keys
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
         with:
           name: conserve-verifier-keys
           path: |
