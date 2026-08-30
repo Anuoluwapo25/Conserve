@@ -18,7 +18,7 @@ nor the recipients nor even how many people were paid.
 
 Anyone can verify the cycle. Nobody can read the payroll.
 
-- Product updates on X: **`<!-- TODO: create the product X profile and link it here -->`**
+- Product updates on X: [@conserveui](https://x.com/conserveui)
 - Documentation: [architecture](docs/architecture.md) · [privacy model](docs/privacy-model.md) · [setup](docs/setup.md) · [usage](docs/usage.md) · [roadmap](docs/roadmap.md)
 
 ## Deployment
