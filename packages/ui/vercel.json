@@ -1,0 +1,4 @@
+{
+  "buildCommand": "cd ../.. && (compact --version >/dev/null 2>&1 || curl --proto '=https' --tlsv1.2 -LsSf https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh) && export PATH=\"$HOME/.local/bin:$PATH\" && compact update 0.31.1 && npm run build -w @conserve/contract && npm run build -w @conserve/api && npm run build -w @conserve/ui",
+  "outputDirectory": "dist"
+}
