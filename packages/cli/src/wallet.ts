@@ -7,7 +7,7 @@
  * midnight-js wants when it builds a contract transaction.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import * as ledger from '@midnight-ntwrk/ledger-v8';
 import { InMemoryTransactionHistoryStorage } from '@midnight-ntwrk/wallet-sdk-abstractions';
@@ -131,11 +131,19 @@ export const openWallet = async (
       facade.unshielded.serializeState(),
       facade.dust.serializeState(),
     ]);
+    // Write to a sibling and rename rather than onto the cache directly. The
+    // dust state alone runs to megabytes, so a write interrupted partway --
+    // Ctrl-C, an OOM kill, a second CLI running concurrently -- would leave
+    // truncated JSON behind. Since the cache is what makes a sync resumable,
+    // corrupting it costs the entire replay it exists to avoid, and rename is
+    // atomic on POSIX.
+    const temporary = `${path}.${process.pid}.tmp`;
     // Holds observed chain state rather than keys, but it does reveal which
     // coins are yours, so keep it owner-readable.
-    await writeFile(path, `${JSON.stringify({ shielded, unshielded, dust })}\n`, {
+    await writeFile(temporary, `${JSON.stringify({ shielded, unshielded, dust })}\n`, {
       mode: 0o600,
     });
+    await rename(temporary, path);
   };
 
   // Checkpoint on a timer rather than on every state emission: the observable
