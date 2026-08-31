@@ -1,0 +1,38 @@
+# Local Midnight stack for the `undeployed` network profile.
+#
+# Deploying to Preprod needs DUST, which only accrues against NIGHT that has
+# been registered for DUST generation from a wallet -- a step the seed-based
+# CLI cannot perform (see the roadmap's DApp connector work). A local node has
+# no such gate, so the full deploy / open / settle flow can be exercised
+# end to end against real circuits and a real ledger.
+#
+# Ports are fixed to the endpoints in packages/api/src/config.ts.
+services:
+  node:
+    image: 'midnightntwrk/midnight-node:0.22.3'
+    container_name: conserve-node
+    ports:
+      - '9944:9944'
+    environment:
+      CFG_PRESET: 'dev'
+      SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9944/health']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+
+  indexer:
+    image: 'midnightntwrk/indexer-standalone:4.0.1'
+    container_name: conserve-indexer
+    ports:
+      - '8088:8088'
+    environment:
+      RUST_LOG: 'indexer=info,chain_indexer=info,indexer_api=info,wallet_indexer=info,indexer_common=info,info'
+      # Satisfies the config schema for the standalone image; not a real secret.
+      APP__INFRA__SECRET: '303132333435363738393031323334353637383930313233343536373839303132'
+      APP__INFRA__NODE__URL: 'ws://node:9944'
+    depends_on:
+      node:
+        condition: service_started
