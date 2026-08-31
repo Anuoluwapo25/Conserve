@@ -68,6 +68,19 @@ export type OperatorWallet = {
   close(): Promise<void>;
 };
 
+/**
+ * How often to checkpoint wallet state while a sync is still running.
+ *
+ * A first sync replays millions of shielded events, and the connection to the
+ * indexer does not reliably survive that long. Saving only once the sync has
+ * finished means an interrupted run persists nothing and the next one starts
+ * from genesis again — which is why a fresh wallet appeared never to converge.
+ * Checkpointing as it goes makes the progress cumulative: each run resumes from
+ * the last checkpoint, so successive attempts reach the tip even if no single
+ * one does.
+ */
+const CHECKPOINT_INTERVAL_MS = 30_000;
+
 /** Cached wallet state, keyed by network so profiles never cross-contaminate. */
 type WalletCache = { shielded: string; unshielded: string; dust: string };
 
@@ -111,23 +124,47 @@ export const openWallet = async (
 
   await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
 
+  const save = async (): Promise<void> => {
+    await mkdir(stateDir, { recursive: true });
+    const [shielded, unshielded, dust] = await Promise.all([
+      facade.shielded.serializeState(),
+      facade.unshielded.serializeState(),
+      facade.dust.serializeState(),
+    ]);
+    // Holds observed chain state rather than keys, but it does reveal which
+    // coins are yours, so keep it owner-readable.
+    await writeFile(path, `${JSON.stringify({ shielded, unshielded, dust })}\n`, {
+      mode: 0o600,
+    });
+  };
+
+  // Checkpoint on a timer rather than on every state emission: the observable
+  // fires many times a second during a replay, and serialising the whole wallet
+  // that often would cost more than the sync itself. `unref` keeps the timer
+  // from holding the process open once the work is done.
+  let checkpointing = false;
+  const checkpoint = setInterval(() => {
+    if (checkpointing) return;
+    checkpointing = true;
+    void save()
+      .catch(() => {
+        // A failed checkpoint costs progress, not correctness — the next one
+        // will try again, and the sync itself is unaffected.
+      })
+      .finally(() => {
+        checkpointing = false;
+      });
+  }, CHECKPOINT_INTERVAL_MS);
+  checkpoint.unref();
+
   return {
     facade,
     keys,
-    save: async () => {
-      await mkdir(stateDir, { recursive: true });
-      const [shielded, unshielded, dust] = await Promise.all([
-        facade.shielded.serializeState(),
-        facade.unshielded.serializeState(),
-        facade.dust.serializeState(),
-      ]);
-      // Holds observed chain state rather than keys, but it does reveal which
-      // coins are yours, so keep it owner-readable.
-      await writeFile(path, `${JSON.stringify({ shielded, unshielded, dust })}\n`, {
-        mode: 0o600,
-      });
+    save,
+    close: async () => {
+      clearInterval(checkpoint);
+      await facade.stop();
     },
-    close: () => facade.stop(),
   };
 };
 

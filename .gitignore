@@ -11,3 +11,4 @@ coverage/
 packages/ui/dist/
 packages/contract/managed/
 .conserve-state/
+*.log
