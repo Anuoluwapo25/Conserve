@@ -24,13 +24,13 @@ Anyone can verify the cycle. Nobody can read the payroll.
 
 ## Deployment
 
-|                  |                                                             |
-| ---------------- | ----------------------------------------------------------- |
-| Live dashboard   | _pending — TODO: link the deployed Vercel URL_               |
-| Network          | Midnight **Preprod**                                        |
-| Contract address | _pending — see [Deployment status](#deployment-status)_     |
-| Indexer          | `https://indexer.preprod.midnight.network/api/v3/graphql`   |
-| Compact compiler | 0.31.1                                                       |
+|                  |                                                           |
+| ---------------- | --------------------------------------------------------- |
+| Live dashboard   | _pending — TODO: link the deployed Vercel URL_            |
+| Network          | Midnight **Preprod**                                      |
+| Contract address | _pending — see [Deployment status](#deployment-status)_   |
+| Indexer          | `https://indexer.preprod.midnight.network/api/v3/graphql` |
+| Compact compiler | 0.31.1                                                    |
 
 ## See it work in one command
 
