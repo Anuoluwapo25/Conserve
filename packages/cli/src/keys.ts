@@ -15,8 +15,8 @@ import {
   ShieldedAddress,
   ShieldedCoinPublicKey,
   ShieldedEncryptionPublicKey,
-  UnshieldedAddress,
 } from '@midnight-ntwrk/wallet-sdk-address-format';
+import { PublicKey, createKeystore } from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
 
 export type OperatorKeys = {
   /** Raw BIP340 key bytes for the Night role; the unshielded keystore wants these. */
@@ -72,10 +72,16 @@ export const deriveAddresses = (keys: OperatorKeys, networkId: string): Operator
     ShieldedCoinPublicKey.fromHexString(keys.shieldedSecretKeys.coinPublicKey),
     ShieldedEncryptionPublicKey.fromHexString(keys.shieldedSecretKeys.encryptionPublicKey),
   );
-  const night = new UnshieldedAddress(Buffer.from(String(keys.nightVerifyingKey), 'hex'));
+  // An unshielded address is derived from the verifying key, not the key bytes
+  // themselves. Encoding the raw key produced a well-formed bech32m string for
+  // a different address than the wallet watches, so funds sent to it never
+  // appeared in the wallet and no amount of syncing would have found them.
+  // Take the address from the same keystore the unshielded wallet is started
+  // with, so what this prints is by construction what the wallet observes.
+  const night = PublicKey.fromKeyStore(createKeystore(keys.nightSecret, networkId)).address;
 
   return {
-    night: MidnightBech32m.encode(networkId, night).toString(),
+    night,
     shielded: MidnightBech32m.encode(networkId, shielded).toString(),
     dust: DustAddress.encodePublicKey(networkId, keys.dustSecretKey.publicKey),
   };
