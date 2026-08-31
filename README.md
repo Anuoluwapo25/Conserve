@@ -136,33 +136,43 @@ The circuits, the CLI and the dashboard are complete, and everything that can be
 checked without funds is checked: 21 circuit tests, a clean build, and a CI step
 that fails if the public footprint ever depends on headcount.
 
-Three steps remain before a Preprod address can go in the table above, and each
-needs a human:
+A Preprod address is pending a faucet grant, which is rate limited to one
+request per address per 24 hours. Getting to that point took two real bugs out
+of this codebase, both fixed here:
 
-1. **Fund the wallet.** The faucet at <https://faucet.preprod.midnight.network>
-   is a web form. Run `conserve address --offline` and paste the `night:`
-   address, then register the NIGHT UTXOs for DUST generation so fees can be
-   paid.
-2. **Start a proof server.** `docker run … midnightnetwork/proof-server` — see
-   [docs/setup.md](docs/setup.md).
-3. **A wallet that finishes syncing.** This one is an open problem rather than
-   a chore. A fresh wallet replays every shielded event since genesis, and on
-   Preprod it does not converge: left running for 17 hours it never reached a
-   synced state, accumulating periodic `Wallet.Sync: [object CloseEvent]`
-   reconnects across the shielded and unshielded wallets (roughly one every 15
-   minutes) and never writing its state cache.
+**The address `conserve address` printed was not the one the wallet watches.**
+`deriveAddresses` built the unshielded address by bech32m-encoding the raw
+verifying key. That produces a well-formed address string — the faucet accepts
+it, the transaction confirms, and the funds land on chain under an owner the
+wallet has no reason to look at. Every symptom pointed at the sync: a wallet
+that reported itself fully synced with a zero balance, while a GraphQL query
+against the indexer showed the tNIGHT sitting in the transaction's
+`unshieldedCreatedOutputs`. An unshielded address is derived from the verifying
+key rather than being it, so the fix is to read the address off the same
+keystore `openWallet` starts the unshielded wallet with — what the CLI prints
+is then, by construction, what the wallet observes.
 
-   What has been ruled out: the transport is fine — the same GraphQL
-   subscription over both `ws` and Node's built-in WebSocket stays open and
-   returns data. Adding a keepalive cut the errors from a tight retry loop to
-   occasional reconnects, and raising the heap to 8 GB stopped the out-of-memory
-   deaths. Neither made it finish.
+**Sync progress was discarded on every interruption.** `openWallet` persisted
+state only after `waitForSyncedState()` resolved. A first sync replays millions
+of shielded and dust events, the indexer subscriptions do not reliably survive
+that long, and the SDK stops re-establishing them after enough reconnects —
+leaving a process that is alive with no network sockets, CPU at zero, and a
+synced state that can never arrive. Because nothing had been written, the next
+run started from genesis, so progress was permanently non-cumulative. That is
+what "17 hours without converging" actually was. Checkpointing every 30 seconds
+(atomically, via rename) makes progress survive a restart, and
+[`scripts/deploy-supervised.sh`](scripts/deploy-supervised.sh) restarts the
+deploy whenever the checkpoint stops growing. With those two changes the wallet
+reaches a strictly synced state in about two hours of unattended retrying.
 
-   Until this is resolved, deploying via the DApp connector from a browser
-   wallet is the more promising route, since it sidesteps headless sync
-   entirely. That work is already on the roadmap for Level 6.
+The remaining steps each need a human: fund the address `conserve address`
+prints, register the NIGHT UTXOs for DUST generation, and run a local proof
+server (`docker run … midnightntwrk/proof-server`, see
+[docs/setup.md](docs/setup.md)). Fees are paid in DUST, which only accrues
+against registered NIGHT — an unregistered wallet cannot pay for its own
+deployment no matter how well it syncs.
 
-Once a funded, synced wallet exists, `conserve deploy` prints the contract
+Once a funded, registered wallet exists, `conserve deploy` prints the contract
 address.
 
 ## Honest limitations
