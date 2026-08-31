@@ -19,14 +19,14 @@ nor the recipients nor even how many people were paid.
 Anyone can verify the cycle. Nobody can read the payroll.
 
 - Product updates on X: [@conserveui](https://x.com/conserveui)
-- Demo video: _pending — TODO: record and link the MVP walkthrough_
+- Demo video: [MVP walkthrough](https://www.loom.com/share/f0f353e23a3446129703bec52aca38db)
 - Documentation: [architecture](docs/architecture.md) · [privacy model](docs/privacy-model.md) · [setup](docs/setup.md) · [usage](docs/usage.md) · [roadmap](docs/roadmap.md)
 
 ## Deployment
 
 |                  |                                                           |
 | ---------------- | --------------------------------------------------------- |
-| Live dashboard   | _pending — TODO: link the deployed Vercel URL_            |
+| Live dashboard   | <https://conserve-uio.vercel.app>                         |
 | Network          | Midnight **Preprod**                                      |
 | Contract address | _pending — see [Deployment status](#deployment-status)_   |
 | Indexer          | `https://indexer.preprod.midnight.network/api/v3/graphql` |
