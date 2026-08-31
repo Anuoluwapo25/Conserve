@@ -10,5 +10,5 @@ coverage/
 .vite/
 packages/ui/dist/
 packages/contract/managed/
-.conserve-state/
+.conserve-state*/
 *.log
