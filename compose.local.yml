@@ -15,7 +15,7 @@ services:
       - '9944:9944'
     environment:
       CFG_PRESET: 'dev'
-      SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
+      SIDECHAIN_BLOCK_BENEFICIARY: '82100068ae5849383293f590e8cd1b62d3042e371fa001518b47863fa0c8a1c0'
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9944/health']
       interval: 2s

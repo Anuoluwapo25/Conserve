@@ -25,13 +25,13 @@ export type ConserveProviders = MidnightProviders<
 export type WalletProviders = Pick<ConserveProviders, 'walletProvider' | 'midnightProvider'>;
 
 /**
- * Locates the contract package's `managed/` directory, where the Compact
- * compiler wrote the prover keys, verifier keys and ZK IR.
+ * Locates the contract package's `managed/conserve/` directory, where the
+ * Compact compiler wrote the prover keys, verifier keys and ZK IR.
  */
 export const zkAssetsDirectory = (): string => {
   const require = createRequire(import.meta.url);
   const entry = require.resolve('@conserve/contract');
-  return resolve(dirname(entry), '../managed');
+  return resolve(dirname(entry), '../managed/conserve');
 };
 
 export type ProviderOptions = {

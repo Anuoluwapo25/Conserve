@@ -172,8 +172,39 @@ server (`docker run … midnightntwrk/proof-server`, see
 against registered NIGHT — an unregistered wallet cannot pay for its own
 deployment no matter how well it syncs.
 
-Once a funded, registered wallet exists, `conserve deploy` prints the contract
-address.
+Confirming that `conserve deploy` would actually succeed once a wallet is
+funded meant proving it against a real ledger, so the check was run against a
+local Midnight network (see [docs/setup.md](docs/setup.md#local-network))
+funded with real NIGHT and registered for real DUST. That surfaced two more
+bugs, both in the deploy path itself and neither reachable until a wallet had
+funds:
+
+**The ZK config provider was pointed one directory short of the compiled
+keys.** `zkAssetsDirectory` in `providers.ts` resolved to the contract
+package's `managed/` directory; the Compact compiler writes prover and
+verifier keys one level deeper, to `managed/conserve/`. Every deploy failed
+with `ZKConfigurationReadError` before this — `npm test` never exercises the
+path, since it only runs the in-process simulator.
+
+**The wallet's node relay was given the RPC URL where the SDK wants a
+websocket.** `relayURL` was built directly from the configured `nodeUrl`
+(`https://` on Preprod, `http://` locally); this SDK version accepts only
+`ws://` or `wss://` there. This would have blocked a Preprod deploy too, the
+moment the faucet grant landed.
+
+With both fixed, `conserve deploy` ran end to end — real circuits, a real
+proof, a real ledger:
+
+```
+deployed to undeployed
+contract: 4cf31a6d2f1e0b36d5c6c830ffddf647daaa17d47fc9e78da6312c960f1b4e65
+```
+
+That's a local-devnet address, not the Preprod one in the table above — it
+still needs the same faucet grant, rate limited to one request per address per
+24 hours — but it is the first time this exact code path has produced a
+contract address. Once the grant lands, the same command prints a Preprod
+one.
 
 ## Honest limitations
 

@@ -11,4 +11,5 @@ coverage/
 packages/ui/dist/
 packages/contract/managed/
 .conserve-state*/
+midnight-level-db/
 *.log

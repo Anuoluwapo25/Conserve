@@ -51,7 +51,8 @@ export const walletConfiguration = (config: NetworkConfig) => ({
   // with more space between them keep peak memory bounded at the cost of a
   // slower first run; later runs restore from the cached state instead.
   batchUpdates: { size: 200, timeout: 50, spacing: 25 },
-  relayURL: new URL(config.nodeUrl),
+  // The wallet SDK relays over a node websocket, not the HTTP RPC endpoint.
+  relayURL: new URL(config.nodeUrl.replace(/^http/, 'ws')),
   provingServerUrl: new URL(config.proofServerUrl),
   txHistoryStorage: new InMemoryTransactionHistoryStorage(WalletEntrySchema, mergeWalletEntries),
   // Fees are paid in DUST, which accrues against registered NIGHT. The margin

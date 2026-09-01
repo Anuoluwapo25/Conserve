@@ -16,7 +16,7 @@ export type ConserveCircuitId = 'openCycle' | 'settle';
  *
  * `withCompiledFileAssets('conserve')` is resolved relative to the base path
  * given to the ZK config provider, which points at the contract package's
- * `managed/` directory.
+ * `managed/conserve/` directory.
  */
 export const conserveCompiledContract = pipe(
   CompiledContract.make<ConserveContract, ConservePrivateState>('conserve', Contract),
