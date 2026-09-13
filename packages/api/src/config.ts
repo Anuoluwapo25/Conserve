@@ -57,5 +57,15 @@ export const networkConfig = (profile: NetworkProfile = 'preprod'): NetworkConfi
   };
 };
 
+/**
+ * The contract each network is actually running, so nothing has to be pasted in
+ * to see live state. A visitor with no address in hand is the common case, and
+ * the dashboard's whole claim is that the chain is publicly auditable — asking
+ * for a 64-character hex string before showing anything argues the opposite.
+ */
+export const DEPLOYED_CONTRACT: Partial<Record<NetworkProfile, string>> = {
+  preprod: '7940f5eeb2e87e5ab8629e1b8ce7167ef37f73e976261886edf90ffed1114e5d',
+};
+
 /** Key under which the payer's private state is stored locally. */
 export const CONSERVE_PRIVATE_STATE_ID = 'conserve-private-state';

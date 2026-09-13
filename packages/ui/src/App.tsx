@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
-import type { NetworkProfile } from '@conserve/api/config';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DEPLOYED_CONTRACT, type NetworkProfile } from '@conserve/api/config';
 import { type CycleView, readCycle } from './cycle.js';
 import {
   type Line,
@@ -15,6 +15,21 @@ import { type ReceiptInput, checkReceipt, emptyReceipt, receiptIssues } from './
 
 const NETWORKS: NetworkProfile[] = ['preprod', 'undeployed'];
 
+/**
+ * A receipt from the demo contract's first cycle, so the recipient side can be
+ * tried without having been paid. Its amount is not a secret: it comes from
+ * `examples/payroll.example.json`, which is public in the repository, settled
+ * against a throwaway testnet organizer key. A real recipient's receipt is
+ * never published anywhere — that is the whole point — so this is the one
+ * receipt it is safe to ship.
+ */
+const DEMO_RECEIPT: ReceiptInput = {
+  cycleId: '1',
+  recipient: '3a7d5e91c0b46f28d1937ea50c6b8f2417d90e3ba85c17f6029d4b8ec3157a0d',
+  amount: '3000',
+  nonce: 'fae123cf752fbd719f89ed0d244981d8edfca9c193dd3fb97be64ea3f5e9c6dd',
+};
+
 const Field = ({ label, value }: { label: string; value: string }) => (
   <div className="field">
     <dt>{label}</dt>
@@ -24,7 +39,7 @@ const Field = ({ label, value }: { label: string; value: string }) => (
 
 function ChainPanel() {
   const [network, setNetwork] = useState<NetworkProfile>('preprod');
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(DEPLOYED_CONTRACT.preprod ?? '');
   const [view, setView] = useState<CycleView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,6 +56,26 @@ function ChainPanel() {
       setLoading(false);
     }
   }, [network, address]);
+
+  // Switching networks should carry the address that network is actually
+  // running, rather than leaving the previous network's address behind to fail
+  // its lookup. Clear it when a network has no known deployment.
+  const known = DEPLOYED_CONTRACT[network];
+  useEffect(() => {
+    setAddress(known ?? '');
+    setView(null);
+    setError(null);
+  }, [network, known]);
+
+  // Read the deployed contract once on arrival: the claim is that anyone can
+  // audit this without credentials, so the page should prove it before asking
+  // for any input.
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current || address.trim() === '') return;
+    loaded.current = true;
+    void load();
+  }, [address, load]);
 
   return (
     <section className="panel">
@@ -191,7 +226,7 @@ function PayrollPanel() {
 
 function ReceiptPanel() {
   const [network, setNetwork] = useState<NetworkProfile>('preprod');
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(DEPLOYED_CONTRACT.preprod ?? '');
   const [input, setInput] = useState<ReceiptInput>(emptyReceipt);
   const [verdict, setVerdict] = useState<ReceiptVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -275,13 +310,18 @@ function ReceiptPanel() {
         />
       </div>
 
-      <button
-        className="add"
-        onClick={run}
-        disabled={checking || issues.length > 0 || address.trim() === ''}
-      >
-        {checking ? 'Checking…' : 'Check'}
-      </button>
+      <div className="row">
+        <button
+          className="add"
+          onClick={run}
+          disabled={checking || issues.length > 0 || address.trim() === ''}
+        >
+          {checking ? 'Checking…' : 'Check'}
+        </button>
+        <button className="ghost" onClick={() => setInput(DEMO_RECEIPT)} disabled={checking}>
+          Use the example receipt
+        </button>
+      </div>
 
       {issues.length > 0 && <p className="error">{issues[0]}</p>}
       {error !== null && <p className="error">{error}</p>}
