@@ -13,3 +13,9 @@ packages/contract/managed/
 .conserve-state*/
 midnight-level-db/
 *.log
+
+# Recipient receipts hold a recipient and an amount in the clear -- the private
+# half of the payroll. `conserve settle --receipts ./receipts` writes them here
+# by default, so keep them out of git by default too.
+receipts/
+*.receipts/

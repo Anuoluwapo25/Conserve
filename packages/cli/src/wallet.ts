@@ -82,6 +82,9 @@ export type OperatorWallet = {
  */
 const CHECKPOINT_INTERVAL_MS = 30_000;
 
+// Distinguishes concurrent temp files within a process; see `save`.
+let saveSequence = 0;
+
 /** Cached wallet state, keyed by network so profiles never cross-contaminate. */
 type WalletCache = { shielded: string; unshielded: string; dust: string };
 
@@ -125,7 +128,15 @@ export const openWallet = async (
 
   await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
 
-  const save = async (): Promise<void> => {
+  // Serialise every save through one chain. The timer's own re-entry guard is
+  // not enough: an explicit `save()` can land mid-checkpoint, and both calls
+  // derive the same `.<pid>.tmp` path, so they interleave writes into one file
+  // and the loser's rename fails with ENOENT after the winner consumed it.
+  // Queueing makes each write-then-rename indivisible, which is what the
+  // atomicity below is actually promising.
+  let saving: Promise<void> = Promise.resolve();
+
+  const writeState = async (): Promise<void> => {
     await mkdir(stateDir, { recursive: true });
     const [shielded, unshielded, dust] = await Promise.all([
       facade.shielded.serializeState(),
@@ -138,13 +149,18 @@ export const openWallet = async (
     // truncated JSON behind. Since the cache is what makes a sync resumable,
     // corrupting it costs the entire replay it exists to avoid, and rename is
     // atomic on POSIX.
-    const temporary = `${path}.${process.pid}.tmp`;
+    const temporary = `${path}.${process.pid}.${++saveSequence}.tmp`;
     // Holds observed chain state rather than keys, but it does reveal which
     // coins are yours, so keep it owner-readable.
     await writeFile(temporary, `${JSON.stringify({ shielded, unshielded, dust })}\n`, {
       mode: 0o600,
     });
     await rename(temporary, path);
+  };
+
+  const save = (): Promise<void> => {
+    saving = saving.then(writeState, writeState);
+    return saving;
   };
 
   // Checkpoint on a timer rather than on every state emission: the observable
@@ -227,4 +243,62 @@ export const summariseWallet = async (wallet: OperatorWallet): Promise<WalletSum
   // function of the moment you ask.
   const dust = state.dust.balance(new Date());
   return { night, dust, synced: state.isSynced };
+};
+
+export type DustRegistration =
+  | { readonly status: 'already-registered' }
+  | { readonly status: 'submitted'; readonly utxoCount: number; readonly txId: string };
+
+/**
+ * Registers every NIGHT UTXO not already registered for DUST generation.
+ *
+ * Fees are paid in DUST, and DUST only accrues against NIGHT that has gone
+ * through this. A freshly funded wallet has NIGHT and no way to spend it
+ * until this transaction lands.
+ */
+export const registerForDust = async (wallet: OperatorWallet): Promise<DustRegistration> => {
+  const state = await wallet.facade.waitForSyncedState();
+  const unregistered = state.unshielded.availableCoins.filter(
+    (coin) => !coin.meta.registeredForDustGeneration,
+  );
+  if (unregistered.length === 0) {
+    return { status: 'already-registered' };
+  }
+
+  const sign = (data: Uint8Array): ledger.Signature =>
+    ledger.signData(wallet.keys.nightSigningKey, data);
+  const recipe = await wallet.facade.registerNightUtxosForDustGeneration(
+    unregistered,
+    wallet.keys.nightVerifyingKey,
+    sign,
+  );
+  const finalized = await wallet.facade.finalizeRecipe(recipe);
+  const txId = await wallet.facade.submitTransaction(finalized);
+  return { status: 'submitted', utxoCount: unregistered.length, txId };
+};
+
+/**
+ * Polls until at least one DUST coin is spendable, not merely accruing.
+ *
+ * `state.dust.balance()` goes positive as soon as the registration lands, but
+ * a coin is not mintable until the chain produces blocks that account for the
+ * accrual — submitting a transaction before then fails with "insufficient
+ * DUST" even though the balance already reads non-zero.
+ */
+export const waitForSpendableDust = async (
+  wallet: OperatorWallet,
+  timeoutMs = 180_000,
+  pollMs = 5_000,
+): Promise<bigint> => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = await wallet.facade.waitForSyncedState();
+    if (state.dust.availableCoins.length > 0) {
+      return state.dust.balance(new Date());
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`no spendable DUST coin within ${timeoutMs}ms`);
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
 };

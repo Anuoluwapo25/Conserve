@@ -30,12 +30,20 @@ import { ConserveSimulator } from '@conserve/contract/simulator';
 import { CONSERVE_PRIVATE_STATE_ID } from '@conserve/api';
 import { readPayroll } from './roster.js';
 import { deriveAddresses, deriveKeys, seedFromHex } from './keys.js';
-import { formatUnits, openWallet, summariseWallet, walletProviders } from './wallet.js';
+import {
+  formatUnits,
+  openWallet,
+  registerForDust,
+  summariseWallet,
+  walletProviders,
+  waitForSpendableDust,
+} from './wallet.js';
 
 const USAGE = `conserve — privacy-preserving payroll on Midnight
 
 Usage:
   conserve address                          Show the operator addresses and balances
+  conserve register                         Register NIGHT for DUST generation
   conserve deploy                           Deploy a payroll contract
   conserve open --contract <addr> --payroll <file>
                                             Publish the budget commitment for a new cycle
@@ -164,10 +172,22 @@ const connect = async (flags: Args['flags']) => {
   return { config, keys, wallet, providers };
 };
 
+/**
+ * Reads the stored roster state for one contract, falling back to an empty one.
+ *
+ * The private-state store scopes every entry by contract address, so the
+ * address has to be registered before the first read or write — otherwise the
+ * provider throws rather than guessing. Taking the address as a parameter and
+ * setting it here means no caller can reach the store without scoping it: the
+ * salt `open` writes and the salt `settle` reads back are then guaranteed to
+ * be the same key.
+ */
 const loadPrivateState = async (
   providers: Awaited<ReturnType<typeof connect>>['providers'],
+  contractAddress: string,
   fallbackKey: Uint8Array,
 ) => {
+  providers.privateStateProvider.setContractAddress(contractAddress);
   const stored = await providers.privateStateProvider.get(CONSERVE_PRIVATE_STATE_ID);
   return stored ?? emptyPrivateState(fallbackKey);
 };
@@ -223,6 +243,47 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
     await wallet.close();
   },
 
+  async register(flags) {
+    const config = networkConfig(profileOf(flags));
+    const keys = deriveKeys(seedFromHex(env('CONSERVE_SEED')));
+    process.stderr.write('syncing wallet…');
+    const wallet = await openWallet(config, keys);
+    await wallet.facade.waitForSyncedState();
+    await wallet.save();
+    process.stderr.write(' done\n');
+
+    const result = await registerForDust(wallet);
+    if (result.status === 'already-registered') {
+      emit(flags, 'every NIGHT UTXO is already registered for DUST generation', {
+        network: config.networkId,
+        status: result.status,
+      });
+      await wallet.close();
+      return;
+    }
+
+    process.stderr.write(
+      `registered ${result.utxoCount} UTXO(s), tx ${result.txId}; waiting for DUST to become spendable…`,
+    );
+    const dust = await waitForSpendableDust(wallet);
+    await wallet.save();
+    process.stderr.write(' done\n');
+
+    emit(
+      flags,
+      `registered ${result.utxoCount} NIGHT UTXO(s) for DUST generation\n` +
+        `tx: ${result.txId}\nDUST: ${formatUnits(dust)}`,
+      {
+        network: config.networkId,
+        status: result.status,
+        utxoCount: result.utxoCount,
+        txId: result.txId,
+        dust,
+      },
+    );
+    await wallet.close();
+  },
+
   async deploy(flags) {
     const { wallet, providers, config } = await connect(flags);
     const secretKey = organizerKey();
@@ -246,7 +307,7 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
     const payroll = await readPayroll(required(flags, 'payroll'));
     const { wallet, providers } = await connect(flags);
     const contractAddress = required(flags, 'contract');
-    const privateState = await loadPrivateState(providers, organizerKey());
+    const privateState = await loadPrivateState(providers, contractAddress, organizerKey());
     const deployment: ConserveDeployment = await join(providers, contractAddress, privateState);
 
     const result = await openCycle(providers, deployment, privateState, payroll.budget);
@@ -264,7 +325,7 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
     const payroll = await readPayroll(required(flags, 'payroll'));
     const { wallet, providers } = await connect(flags);
     const contractAddress = required(flags, 'contract');
-    const privateState = await loadPrivateState(providers, organizerKey());
+    const privateState = await loadPrivateState(providers, contractAddress, organizerKey());
     const deployment: ConserveDeployment = await join(providers, contractAddress, privateState);
 
     const result = await settle(providers, deployment, privateState, payroll.payouts);
