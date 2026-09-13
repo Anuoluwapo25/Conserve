@@ -27,6 +27,7 @@
     "typescript": "^5.6.3"
   },
   "overrides": {
-    "@midnight-ntwrk/ledger-v8": "8.1.0"
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.1.0"
   }
 }
