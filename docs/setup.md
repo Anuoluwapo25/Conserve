@@ -51,9 +51,17 @@ in the clear, so a hosted one would defeat the point:
 
 ```bash
 docker run -d --rm -p 6300:6300 --name conserve-proof-server \
-  midnightnetwork/proof-server:latest -- \
-  'midnight-proof-server --network preprod --verbose'
+  midnightntwrk/proof-server:8.1.0 -- \
+  'midnight-proof-server --port 6300 --verbose'
 ```
+
+The image tag has to match the ledger version the client is built against —
+`@midnight-ntwrk/ledger-v8`, pinned to 8.1.0 in the root `package.json`. Note
+the organisation: `midnightntwrk` publishes the current images, while the
+older `midnightnetwork/proof-server` stops at ledger 7 and its `latest` tag is
+far behind. Pairing an 8.x client with a 7.x proof server does not fail
+cleanly — the server accepts the `/prove` request and then spins on one core
+indefinitely, which looks exactly like a slow proof.
 
 ## Operator secrets
 
@@ -87,9 +95,22 @@ source .env.local
 node packages/cli/dist/main.js address --offline
 ```
 
-Paste the `night:` address into <https://faucet.preprod.midnight.network>. Fees
-are paid in DUST, which accrues against registered NIGHT, so after funding you
-also need to register those UTXOs for DUST generation.
+Paste the `night:` address into <https://faucet.preprod.midnight.network>. The
+faucet is rate limited to one request per address per 24 hours.
+
+Fees are paid in DUST, which only accrues against _registered_ NIGHT, so a
+freshly funded wallet has a balance and no way to spend it. Register the new
+UTXOs once the funding has synced:
+
+```bash
+node packages/cli/dist/main.js register
+```
+
+This submits one transaction covering every unregistered NIGHT UTXO, then waits
+until a DUST coin is actually spendable — the DUST balance reads non-zero as
+soon as the registration lands, but a transaction submitted before the chain has
+accounted for the accrual still fails with "insufficient DUST". Re-running it
+once everything is registered is a no-op.
 
 Syncing a fresh wallet scans the chain from genesis and needs more than Node's
 default heap:
