@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DEPLOYED_CONTRACT, type NetworkProfile } from '@conserve/api/config';
-import { type CycleView, readCycle } from './cycle.js';
+import { type CycleView, readCycle, readLedger } from './cycle.js';
 import {
   type Line,
   MAX_LINES,
@@ -10,8 +10,19 @@ import {
   total,
   validate,
 } from './payroll.js';
-import type { ReceiptVerdict } from '@conserve/api/view';
-import { type ReceiptInput, checkReceipt, emptyReceipt, receiptIssues } from './receipt.js';
+import {
+  type PublicCycleView,
+  type ReceiptVerdict,
+  summarise,
+  verifyReceipt,
+} from '@conserve/api/view';
+import {
+  type ReceiptInput,
+  checkReceipt,
+  emptyReceipt,
+  receiptIssues,
+  toReceipt,
+} from './receipt.js';
 
 const NETWORKS: NetworkProfile[] = ['preprod', 'undeployed'];
 
@@ -36,6 +47,111 @@ const Field = ({ label, value }: { label: string; value: string }) => (
     <dd>{value}</dd>
   </div>
 );
+
+/** Headcount of the payroll behind the demo contract — public in the repository. */
+const DEMO_HEADCOUNT = 3;
+
+type Moment = {
+  readonly view: PublicCycleView;
+  readonly honest: ReceiptVerdict;
+  readonly inflated: ReceiptVerdict;
+};
+
+/**
+ * The whole idea on one screen: the same contract, read once, from two seats.
+ * The public sees commitments and counts; a recipient holding their receipt can
+ * prove their exact amount — and cannot prove a different one.
+ */
+function TwoViews() {
+  const address = DEPLOYED_CONTRACT.preprod;
+  const [moment, setMoment] = useState<Moment | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [claimInflated, setClaimInflated] = useState(false);
+
+  useEffect(() => {
+    if (address === undefined) return;
+    let cancelled = false;
+    readLedger('preprod', address)
+      .then((state) => {
+        if (cancelled) return;
+        const inflatedAmount = String(BigInt(DEMO_RECEIPT.amount) + 500n);
+        setMoment({
+          view: summarise(state),
+          honest: verifyReceipt(state, toReceipt(DEMO_RECEIPT)),
+          inflated: verifyReceipt(state, toReceipt({ ...DEMO_RECEIPT, amount: inflatedAmount })),
+        });
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
+
+  const claimed = claimInflated ? BigInt(DEMO_RECEIPT.amount) + 500n : BigInt(DEMO_RECEIPT.amount);
+  const verdict = moment === null ? null : claimInflated ? moment.inflated : moment.honest;
+
+  return (
+    <section
+      className="two-views"
+      aria-label="The same contract, seen by the public and by a recipient"
+    >
+      <div className="seat public">
+        <p className="seat-label">What everyone sees</p>
+        <h2>The public</h2>
+        {error !== null && <p className="error">{error}</p>}
+        {moment === null && error === null && <p className="loading">Reading Midnight Preprod…</p>}
+        {moment !== null && (
+          <>
+            <dl>
+              <Field label="Cycle" value={String(moment.view.cycleId)} />
+              <Field label="Status" value={moment.view.status} />
+              <Field label="Payout slots" value={String(moment.view.rosterWidth)} />
+              <Field label="Receipts on chain" value={String(moment.view.receiptsAnchored)} />
+              <Field label="Amounts on chain" value="none" />
+              <Field label="Names on chain" value="none" />
+            </dl>
+            <div className="commitment">
+              <span>Budget commitment</span>
+              <code>{moment.view.budgetCommitment}</code>
+            </div>
+            <p className="note">
+              {DEMO_HEADCOUNT} people were paid. The chain shows {String(moment.view.rosterWidth)}{' '}
+              of everything, so not even the headcount leaks.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="seat recipient">
+        <p className="seat-label">What only they can prove</p>
+        <h2>A recipient</h2>
+        {moment === null && error === null && <p className="loading">Checking their receipt…</p>}
+        {moment !== null && verdict !== null && (
+          <>
+            <p className={verdict.anchored ? 'verdict ok' : 'verdict bad'}>
+              <span className="amount">{claimed.toLocaleString()}</span>
+              {verdict.anchored ? 'Proven on chain' : 'Rejected — no such payment'}
+            </p>
+            <p className="note">
+              {verdict.anchored
+                ? `The designer holds a private receipt for cycle ${DEMO_RECEIPT.cycleId}. It matches a commitment the network accepted, so they know they were paid exactly this — and nobody watching learns the figure.`
+                : 'Claim a different amount and the commitment no longer matches anything on chain. A receipt proves one exact payment, so nobody can overstate what they were paid.'}
+            </p>
+            <div className="commitment">
+              <span>{verdict.anchored ? 'Matching commitment' : 'Commitment for this claim'}</span>
+              <code>{verdict.commitment}</code>
+            </div>
+            <button className="ghost add" onClick={() => setClaimInflated((current) => !current)}>
+              {claimInflated ? 'Back to the real receipt' : 'Try claiming 500 more'}
+            </button>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function ChainPanel() {
   const [network, setNetwork] = useState<NetworkProfile>('preprod');
@@ -67,20 +183,10 @@ function ChainPanel() {
     setError(null);
   }, [network, known]);
 
-  // Read the deployed contract once on arrival: the claim is that anyone can
-  // audit this without credentials, so the page should prove it before asking
-  // for any input.
-  const loaded = useRef(false);
-  useEffect(() => {
-    if (loaded.current || address.trim() === '') return;
-    loaded.current = true;
-    void load();
-  }, [address, load]);
-
   return (
     <section className="panel">
       <header>
-        <h2>What the chain shows</h2>
+        <h2>Inspect any contract</h2>
         <p>Read live from the public indexer — the same view a block explorer has.</p>
       </header>
 
@@ -154,10 +260,10 @@ function PayrollPanel() {
   return (
     <section className="panel">
       <header>
-        <h2>What stays private</h2>
+        <h2>Draft a payroll</h2>
         <p>
-          This table never leaves the tab. It becomes witness data for the proof; only the
-          commitment below is published.
+          This table never leaves the tab. In a real cycle it becomes private input to the proof;
+          only the commitment below is ever published.
         </p>
       </header>
 
@@ -251,10 +357,10 @@ function ReceiptPanel() {
   return (
     <section className="panel">
       <header>
-        <h2>Check a receipt</h2>
+        <h2>Check your receipt</h2>
         <p>
-          For recipients. Paste what your employer gave you and confirm it is anchored on chain.
-          Nothing here is sent anywhere — the check runs against public state, in this tab.
+          Paste what your employer gave you and confirm it is anchored on chain. Nothing is sent
+          anywhere — the check runs against public state, in this tab.
         </p>
       </header>
 
@@ -323,7 +429,9 @@ function ReceiptPanel() {
         </button>
       </div>
 
-      {issues.length > 0 && <p className="error">{issues[0]}</p>}
+      {issues.length > 0 && Object.values(input).some((value) => value.trim() !== '') && (
+        <p className="error">{issues[0]}</p>
+      )}
       {error !== null && <p className="error">{error}</p>}
 
       {verdict !== null && (
@@ -345,24 +453,29 @@ export default function App() {
   return (
     <main>
       <header className="masthead">
-        <h1>Conserve</h1>
+        <p className="eyebrow">Live on Midnight Preprod</p>
+        <h1>Private payroll on a public blockchain.</h1>
         <p>
-          Payroll and revenue splits where the total is verifiable and the individual amounts are
-          not public.
+          Anyone can verify the team was paid correctly. Nobody can see who earns what. Below is a
+          real payroll, settled on chain — read once, from two seats.
         </p>
       </header>
 
+      <TwoViews />
+
+      <h2 className="section-title">Try it yourself</h2>
       <div className="panels">
+        <ReceiptPanel />
         <PayrollPanel />
         <ChainPanel />
-        <ReceiptPanel />
       </div>
 
       <footer>
         <p>
-          Settlement runs from the CLI: <code>conserve open</code> then <code>conserve settle</code>
-          . The proof is built locally against a proof server you control, because the roster is the
-          one thing that must never leave your machine.
+          Organizers run cycles with <code>conserve open</code> and <code>conserve settle</code>.
+          The proof is built against a proof server they control, because the payroll is the one
+          thing that must never leave their machine.{' '}
+          <a href="https://github.com/Anuoluwapo25/Conserve">Source and docs on GitHub</a>.
         </p>
       </footer>
     </main>

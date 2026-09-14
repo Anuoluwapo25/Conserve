@@ -140,6 +140,12 @@ receipts anchored:  16
 npm run dev -w @conserve/ui
 ```
 
-Three panels: a payroll composer that never leaves the tab, a live read of any
-contract's public state, and a receipt checker for recipients. The contrast
-between the first two is the point; the third is who it is for.
+The dashboard opens on the deployed Preprod contract, read once and shown from
+two seats side by side: what the public sees (commitments and counts, no
+amounts, no names, sixteen slots whatever the headcount) and what a recipient
+can prove (their exact amount, matched against a commitment on chain). _Try
+claiming 500 more_ shows the same check rejecting an overstated payment.
+
+Below that are the hands-on tools: a receipt checker for your own receipt, a
+payroll draft that never leaves the tab and shows the one commitment it would
+publish, and a reader for any contract's public state on either network.

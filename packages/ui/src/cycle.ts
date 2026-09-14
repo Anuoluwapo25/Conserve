@@ -9,14 +9,19 @@ import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-p
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { type NetworkProfile, networkConfig } from '@conserve/api/config';
 import { summarise } from '@conserve/api/view';
-import { ledger } from '@conserve/contract';
+import { type Ledger, ledger } from '@conserve/contract';
 
 export type CycleView = ReturnType<typeof summarise>;
 
-export const readCycle = async (
+/**
+ * Fetches a contract's ledger once, so several views of the same moment — what
+ * the public sees and what a recipient can prove — are computed from one read
+ * rather than from reads that could straddle a new settlement.
+ */
+export const readLedger = async (
   profile: NetworkProfile,
   contractAddress: string,
-): Promise<CycleView> => {
+): Promise<Ledger> => {
   const config = networkConfig(profile);
   setNetworkId(config.networkId);
   const provider = indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl);
@@ -24,5 +29,10 @@ export const readCycle = async (
   if (state === null) {
     throw new Error(`No contract found at ${contractAddress} on ${config.networkId}.`);
   }
-  return summarise(ledger(state.data));
+  return ledger(state.data);
 };
+
+export const readCycle = async (
+  profile: NetworkProfile,
+  contractAddress: string,
+): Promise<CycleView> => summarise(await readLedger(profile, contractAddress));

@@ -9,7 +9,7 @@
 - [x] Operator CLI: deploy, open, settle, status, simulate
 - [x] Minimal dashboard reading live public state
 - [x] CI compiling circuits, running tests, and failing on a footprint leak
-- [ ] Deployed to Preprod (see the README for the current status)
+- [x] Deployed to Preprod, with a cycle opened and settled on chain ([what it took](deployment.md))
 
 ## Level 5 — Full Moon
 

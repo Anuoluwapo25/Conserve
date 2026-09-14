@@ -32,7 +32,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font:
+    15px/1.55 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
 }
 
 main {
@@ -224,4 +229,143 @@ footer {
 
 .commitment .note {
   margin-top: 0.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.masthead h1 {
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  max-width: 22ch;
+  line-height: 1.15;
+}
+
+.two-views {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .two-views {
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+}
+
+.seat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.seat h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+}
+
+.seat.recipient {
+  border-color: var(--accent);
+}
+
+.seat-label {
+  margin: 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.loading {
+  color: var(--muted);
+}
+
+.verdict {
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-weight: 600;
+}
+
+.verdict .amount {
+  font-size: 2.6rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.verdict.ok {
+  color: var(--accent);
+}
+
+.verdict.bad {
+  color: var(--danger);
+}
+
+.seat .add {
+  margin-top: auto;
+}
+
+.seat .commitment {
+  margin-bottom: 1rem;
+}
+
+.section-title {
+  margin: 2.5rem 0 1rem;
+  font-size: 1.1rem;
+}
+
+footer a {
+  color: var(--accent);
+}
+
+/*
+ * Grid and flex children default to min-width: auto, so an input's intrinsic
+ * width (about 20 characters) sets a floor the layout cannot shrink below. That
+ * floor, repeated across the payroll row's four columns, made the page wider
+ * than a phone screen. Let every cell shrink and size inputs to their cell.
+ */
+.panels > *,
+.two-views > *,
+.line > *,
+.row > * {
+  min-width: 0;
+}
+
+input {
+  width: 100%;
+}
+
+.row select {
+  flex: 0 0 auto;
+}
+
+.line {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 0.7fr) auto;
+}
+
+@media (max-width: 560px) {
+  .line {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .line input:nth-child(2),
+  .line input:nth-child(3) {
+    grid-column: 1 / 2;
+  }
+
+  .line button {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
