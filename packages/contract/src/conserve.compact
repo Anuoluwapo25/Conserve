@@ -6,20 +6,28 @@
 //
 //   1. the amounts sum to exactly the committed total (conservation),
 //   2. every recipient in the roster is distinct (no double payment),
-//   3. each recipient has a receipt commitment anchored in a Merkle tree.
+//   3. each recipient has a receipt commitment anchored in a Merkle tree,
+//
+// and in the same transaction it pays them: the organizer's wallet funds one
+// shielded coin worth exactly the committed total, and the circuit splits it
+// into one shielded payout per roster slot. The sum that is proved is the sum
+// that moves.
 //
 // Nothing about who was paid or how much ever reaches the ledger. The public
 // state holds only the cycle id, the budget commitment, a settled flag, a set
-// of per-cycle recipient nullifiers, and the receipt tree.
+// of per-cycle recipient nullifiers, and the receipt tree. The payouts
+// themselves are shielded coins: commitments on chain, readable only by the
+// recipient each one is encrypted to.
 
 pragma language_version >= 0.17;
 
 import CompactStandardLibrary;
 
 // Roster slots per cycle. Every cycle writes exactly this many nullifiers and
-// receipts regardless of how many recipients are real, so the public footprint
-// of a settlement is constant and never leaks the size of the team. Unused
-// slots are filled client-side with a random recipient and a zero amount.
+// receipts, and makes exactly this many shielded payouts, regardless of how
+// many recipients are real, so the public footprint of a settlement is constant
+// and never leaks the size of the team. Unused slots are filled client-side with
+// a throwaway recipient key and a zero amount.
 export ledger MAX_RECIPIENTS: Uint<8>;
 
 export enum CycleStatus {
@@ -29,9 +37,10 @@ export enum CycleStatus {
 }
 
 // One line of the payroll. Private in its entirety: only a commitment to it is
-// ever written to the ledger.
+// ever written to the ledger. The recipient is a shielded wallet's coin public
+// key, which is what a payout is sent to.
 export struct PayoutEntry {
-  recipient: Bytes<32>,
+  recipient: ZswapCoinPublicKey,
   amount: Uint<64>,
   nonce: Bytes<32>,
 }
@@ -43,8 +52,10 @@ export struct PayoutEntry {
 // Commitment to the organizer's secret key; gates the privileged circuits.
 export ledger organizer: Bytes<32>;
 
-// Monotonic cycle counter. Level 4 settles one cycle; the counter is already
-// in place for the recurring cycles that Level 5 adds.
+// The token every payout on this contract is made in, fixed at deployment.
+export ledger payoutToken: Bytes<32>;
+
+// Monotonic cycle counter, incremented by each `openCycle`.
 export ledger cycleId: Uint<64>;
 
 export ledger status: CycleStatus;
@@ -77,6 +88,9 @@ witness budgetSalt(): Bytes<32>;
 
 witness cycleSalt(): Bytes<32>;
 
+// Nonce of the coin the organizer's wallet funds the settlement with.
+witness fundingNonce(): Bytes<32>;
+
 // ---------------------------------------------------------------------------
 // Pure helpers — exported so clients derive the exact same values off-chain
 // ---------------------------------------------------------------------------
@@ -95,11 +109,16 @@ export pure circuit receiptCommitment(
                       amount: Uint<64>,
                       nonce: Bytes<32>
                       ): Bytes<32> {
-  return persistentHash<Vector<4, Bytes<32>>>(
-           [pad(32, "conserve:receipt:v1"),
+  // One flat hash. An earlier version nested a second hash for (cid, amount);
+  // sixteen of those pushed settle past 2^19 rows, doubling its proving key and
+  // the memory a proof server needs. Both values are Uint<64>, so their Field
+  // encodings fit in Bytes<32> and the flat form commits to exactly as much.
+  return persistentHash<Vector<5, Bytes<32>>>(
+           [pad(32, "conserve:receipt:v2"),
             recipient,
             nonce,
-            persistentHash<Vector<2, Field>>([cid as Field, amount as Field]),]
+            cid as Field as Bytes<32>,
+            amount as Field as Bytes<32>]
            );
 }
 
@@ -111,8 +130,9 @@ export pure circuit budgetCommitmentOf(total: Uint<64>, salt: Bytes<32>): Bytes<
 // Circuits
 // ---------------------------------------------------------------------------
 
-constructor(organizerPk: Bytes<32>) {
+constructor(organizerPk: Bytes<32>, token: Bytes<32>) {
   organizer = disclose(organizerPk);
+  payoutToken = disclose(token);
   MAX_RECIPIENTS = 16;
   cycleId = 0;
   status = CycleStatus.dormant;
@@ -134,8 +154,8 @@ export circuit openCycle(commitment: Bytes<32>): Uint<64> {
   return cycleId;
 }
 
-// The privacy-critical core. Proves the split is conservative and duplicate-free
-// without revealing a single recipient or amount.
+// The privacy-critical core. Proves the split is conservative and duplicate-free,
+// and pays it, without revealing a single recipient or amount.
 export circuit settle(): [] {
   assert(status == CycleStatus.open, "conserve: no cycle is open");
   assert(organizer == organizerPublicKey(disclose(organizerSecretKey())),
@@ -178,7 +198,7 @@ export circuit settle(): [] {
   // paid twice inside one cycle and no slot can be quietly reused.
   for (const i of 0..16) {
     for (const j of 0..16) {
-      assert(i == j || roster[i].recipient != roster[j].recipient,
+      assert(i == j || roster[i].recipient.bytes != roster[j].recipient.bytes,
              "conserve: a recipient appears more than once"
              );
     }
@@ -188,11 +208,39 @@ export circuit settle(): [] {
   // receipt commitment per slot, in fixed order, with no data-dependent
   // branching that could reveal how many slots are actually in use.
   for (const i of 0..16) {
-    nullifiers.insert(disclose(recipientNullifier(roster[i].recipient, salt)));
+    nullifiers.insert(disclose(recipientNullifier(roster[i].recipient.bytes, salt)));
     receipts.insert(
-      disclose(receiptCommitment(cid, roster[i].recipient, roster[i].amount, roster[i].nonce))
+      disclose(receiptCommitment(cid, roster[i].recipient.bytes, roster[i].amount, roster[i].nonce))
       );
   }
+
+  // (5) Pay. The organizer's wallet supplies one shielded coin worth exactly
+  // the committed total; receiving it discloses only its commitment, so the
+  // total stays private. Each slot then spends the running coin, sends its
+  // amount to its recipient, and carries the change into the next slot, all
+  // inside this transaction. No intermediate balance is ever written to the
+  // ledger, where the difference between two balances would be a salary.
+  //
+  // The standard library skips the change coin only when change is exactly
+  // zero. The client orders the roster with padding first, so that happens at
+  // the last slot and nowhere else: every settlement has the same shape
+  // whatever the headcount. A last slot of zero would try to spend a coin that
+  // no longer exists, so it is refused here with a readable message.
+  assert(roster[15].amount != 0, "conserve: the last roster slot must be a real payout");
+  const funding = ShieldedCoinInfo { nonce: fundingNonce(),
+                                     color: payoutToken,
+                                     value: total as Uint<128>, };
+  receiveShielded(disclose(funding));
+  const remaining =
+          fold((coin: ShieldedCoinInfo, entry: PayoutEntry): ShieldedCoinInfo =>
+               sendImmediateShielded(
+                 coin,
+                 left<ZswapCoinPublicKey, ContractAddress>(disclose(entry.recipient)),
+                 disclose(entry.amount) as Uint<128>
+                 ).change.value,
+               disclose(funding),
+               roster);
+  assert(remaining.value == 0, "conserve: payouts did not spend the whole budget");
 
   status = CycleStatus.settled;
   settledCycles.increment(1);

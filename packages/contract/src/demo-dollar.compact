@@ -1,0 +1,24 @@
+// Demo Dollar — a shielded test token for trying Conserve on a testnet.
+//
+// Conserve pays in whatever shielded token its deployment names. Preprod has
+// no shielded token an organizer can obtain from a faucet, so this contract
+// mints one: anyone may mint any amount to their own shielded wallet. It exists
+// only so a payroll cycle can move real shielded value on a test network, and
+// has no place on a network where tokens are worth something.
+//
+// Minted amounts are public. Mint a round working balance rather than exactly
+// one cycle's budget, or the mint transaction reveals the total the budget
+// commitment hides.
+
+pragma language_version >= 0.17;
+
+import CompactStandardLibrary;
+
+export circuit mint(amount: Uint<64>, nonce: Bytes<32>): [] {
+  mintShieldedToken(
+    pad(32, "conserve:demo-dollar:v1"),
+    disclose(amount),
+    disclose(nonce),
+    left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey())
+    );
+}

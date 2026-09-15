@@ -14,6 +14,10 @@
     "./simulator": {
       "types": "./dist/simulator.d.ts",
       "default": "./dist/simulator.js"
+    },
+    "./demo-dollar": {
+      "types": "./dist/demo-dollar.d.ts",
+      "default": "./dist/demo-dollar.js"
     }
   },
   "files": [
@@ -28,7 +32,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@midnight-ntwrk/compact-runtime": "0.16.0"
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/ledger-v8": "8.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

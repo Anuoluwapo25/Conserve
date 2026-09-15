@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Compiles conserve.compact into ./managed (contract JS/TS bindings, ZK IR,
-// prover and verifier keys).
+// Compiles the package's Compact contracts into ./managed/<name> (contract
+// JS/TS bindings, ZK IR, prover and verifier keys): conserve.compact, the
+// payroll contract, and demo-dollar.compact, the test token it pays in on
+// networks without one.
 //
 // Recompiling takes minutes, so the artifacts carry a stamp recording the hash
 // of the source they were built from and the compiler that built them. A run
@@ -16,10 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const source = resolve(pkgRoot, 'src/conserve.compact');
-const outDir = resolve(pkgRoot, 'managed/conserve');
-const stampFile = resolve(outDir, 'compile-stamp.json');
-const marker = resolve(outDir, 'contract/index.js');
+const CONTRACTS = ['conserve', 'demo-dollar'];
 
 /**
  * The selected compiler's version, or undefined if the toolchain is not on
@@ -46,48 +45,59 @@ const missingToolchain = () => {
   process.exit(127);
 };
 
-const sourceHash = createHash('sha256').update(readFileSync(source)).digest('hex');
+/** Compiles one contract unless its artifacts already match its source. */
+const compile = (name, installed) => {
+  const source = resolve(pkgRoot, `src/${name}.compact`);
+  const outDir = resolve(pkgRoot, `managed/${name}`);
+  const stampFile = resolve(outDir, 'compile-stamp.json');
+  const marker = resolve(outDir, 'contract/index.js');
+  const sourceHash = createHash('sha256').update(readFileSync(source)).digest('hex');
 
-const readStamp = () => {
-  try {
-    return JSON.parse(readFileSync(stampFile, 'utf8'));
-  } catch {
-    return undefined;
+  const readStamp = () => {
+    try {
+      return JSON.parse(readFileSync(stampFile, 'utf8'));
+    } catch {
+      return undefined;
+    }
+  };
+
+  const artifactsPresent = () => {
+    try {
+      readFileSync(marker);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (process.env.COMPACT_FORCE !== '1' && artifactsPresent()) {
+    const stamp = readStamp();
+    if (stamp?.sourceHash === sourceHash) {
+      if (installed === undefined) {
+        // A cache hit is the common case in CI, and it should not require
+        // installing a toolchain just to confirm work that is already done.
+        console.log(
+          `${name}: artifacts match the current source (built with ${stamp.compiler}); ` +
+            'skipping compile, no toolchain needed',
+        );
+        return;
+      }
+      if (stamp.compiler === installed) {
+        console.log(`${name}: artifacts match the current source, skipping compile`);
+        return;
+      }
+      console.log(`${name}: compiler changed (${stamp.compiler} -> ${installed}), recompiling`);
+    }
   }
+
+  const version = installed ?? missingToolchain();
+  mkdirSync(outDir, { recursive: true });
+  console.log(`${name}: compiling ${source} with ${version}`);
+  execFileSync('compact', ['compile', source, outDir], { stdio: 'inherit' });
+  writeFileSync(stampFile, `${JSON.stringify({ sourceHash, compiler: version }, null, 2)}\n`);
 };
 
-const artifactsPresent = () => {
-  try {
-    readFileSync(marker);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-if (process.env.COMPACT_FORCE !== '1' && artifactsPresent()) {
-  const stamp = readStamp();
-  if (stamp?.sourceHash === sourceHash) {
-    const installed = compilerVersion();
-    if (installed === undefined) {
-      // A cache hit is the common case in CI, and it should not require
-      // installing a toolchain just to confirm work that is already done.
-      console.log(
-        `conserve: artifacts match the current source (built with ${stamp.compiler}); ` +
-          'skipping compile, no toolchain needed',
-      );
-      process.exit(0);
-    }
-    if (stamp.compiler === installed) {
-      console.log('conserve: artifacts match the current source, skipping compile');
-      process.exit(0);
-    }
-    console.log(`conserve: compiler changed (${stamp.compiler} -> ${installed}), recompiling`);
-  }
+const installed = compilerVersion();
+for (const name of CONTRACTS) {
+  compile(name, installed);
 }
-
-const version = compilerVersion() ?? missingToolchain();
-mkdirSync(outDir, { recursive: true });
-console.log(`conserve: compiling ${source} with ${version}`);
-execFileSync('compact', ['compile', source, outDir], { stdio: 'inherit' });
-writeFileSync(stampFile, `${JSON.stringify({ sourceHash, compiler: version }, null, 2)}\n`);

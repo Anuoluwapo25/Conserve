@@ -11,13 +11,16 @@ import {
   pureCircuits,
   randomBytes32,
   receiptsFor,
+  throwawayRecipient,
 } from './index.js';
 import { ConserveSimulator } from './simulator.js';
 
 const ORGANIZER_SK = randomBytes32();
 
 const payouts = (...amounts: bigint[]): Payout[] =>
-  amounts.map((amount) => ({ recipient: randomBytes32(), amount }));
+  amounts.map((amount) => ({ ...throwawayRecipient(), amount }));
+
+const hex = (bytes: Uint8Array): string => Buffer.from(bytes).toString('hex');
 
 const sum = (values: bigint[]): bigint => values.reduce((a, b) => a + b, 0n);
 
@@ -64,7 +67,7 @@ describe('settle', () => {
     const tampered = {
       ...state,
       roster: state.roster.map((entry, i) =>
-        i === 0 ? { ...entry, amount: entry.amount - 1n } : entry,
+        i === MAX_RECIPIENTS - 1 ? { ...entry, amount: entry.amount - 1n } : entry,
       ),
     };
 
@@ -76,19 +79,15 @@ describe('settle', () => {
   });
 
   it('rejects a roster that pays the same recipient twice', () => {
-    const recipient = randomBytes32();
-    const state = prepareCycle(
-      ORGANIZER_SK,
-      [
-        { recipient, amount: 6_000n },
-        { recipient: randomBytes32(), amount: 4_000n },
-      ],
-      10_000n,
-    );
+    const state = prepareCycle(ORGANIZER_SK, payouts(6_000n, 4_000n), 10_000n);
     const sim = new ConserveSimulator(state);
+    // Point the first real payout at the second real payout's recipient.
+    const last = state.roster[MAX_RECIPIENTS - 1]!;
     const duplicated = {
       ...state,
-      roster: state.roster.map((entry, i) => (i === 1 ? { ...entry, recipient } : entry)),
+      roster: state.roster.map((entry, i) =>
+        i === MAX_RECIPIENTS - 2 ? { ...entry, recipient: last.recipient } : entry,
+      ),
     };
 
     sim.setPrivateState(state);
@@ -158,15 +157,9 @@ describe('public footprint', () => {
   });
 
   it('never writes an amount or a recipient to the ledger', () => {
-    const recipients = [randomBytes32(), randomBytes32()];
-    const state = prepareCycle(
-      ORGANIZER_SK,
-      [
-        { recipient: recipients[0]!, amount: 7_777n },
-        { recipient: recipients[1]!, amount: 2_223n },
-      ],
-      10_000n,
-    );
+    const lines = payouts(7_777n, 2_223n);
+    const recipients = lines.map((line) => line.recipient);
+    const state = prepareCycle(ORGANIZER_SK, lines, 10_000n);
     const sim = new ConserveSimulator(state);
     runCycle(sim, state);
 
@@ -232,17 +225,77 @@ describe('receipts', () => {
     runCycle(sim, state);
 
     for (const entry of state.roster) {
-      const nullifier = pureCircuits.recipientNullifier(entry.recipient, state.cycleSalt);
+      const nullifier = pureCircuits.recipientNullifier(entry.recipient.bytes, state.cycleSalt);
       expect(sim.ledger.nullifiers.member(nullifier)).toBe(true);
     }
   });
 });
 
+describe('payouts', () => {
+  it('pays each real recipient exactly their amount, in the payout token', () => {
+    const lines = payouts(6_000n, 3_000n, 1_000n);
+    const state = prepareCycle(ORGANIZER_SK, lines, 10_000n);
+    const sim = new ConserveSimulator(state);
+    runCycle(sim, state);
+
+    const toUsers = sim.zswap.outputs.filter((output) => output.recipient.is_left);
+    for (const line of lines) {
+      const paid = toUsers.filter((output) => output.recipient.left === hex(line.recipient));
+      expect(paid).toHaveLength(1);
+      expect(paid[0]!.coinInfo.value).toBe(line.amount);
+      expect(paid[0]!.coinInfo.type).toBe(hex(sim.payoutToken));
+    }
+    const paidTotal = toUsers.reduce((total, output) => total + output.coinInfo.value, 0n);
+    expect(paidTotal).toBe(10_000n);
+  });
+
+  it('makes the same shielded transaction for 2 recipients as for 11', () => {
+    const shape = (state: ReturnType<typeof prepareCycle>) => {
+      const sim = new ConserveSimulator(state);
+      runCycle(sim, state);
+      const { inputs, outputs } = sim.zswap;
+      return {
+        inputs: inputs.length,
+        toUsers: outputs.filter((output) => output.recipient.is_left).length,
+        toContract: outputs.filter((output) => !output.recipient.is_left).length,
+      };
+    };
+
+    const small = shape(prepareCycle(ORGANIZER_SK, payouts(9_000n, 1_000n), 10_000n));
+    const large = shape(
+      prepareCycle(
+        ORGANIZER_SK,
+        payouts(1_000n, 900n, 800n, 700n, 600n, 500n, 400n, 300n, 200n, 100n, 4_500n),
+        10_000n,
+      ),
+    );
+
+    expect(small.toUsers).toBe(MAX_RECIPIENTS);
+    expect(large).toEqual(small);
+  });
+
+  it('refuses a roster whose last slot is padding', () => {
+    const state = prepareCycle(ORGANIZER_SK, payouts(6_000n, 4_000n), 10_000n);
+    const sim = new ConserveSimulator(state);
+    // Move a padding slot to the end, so the coin would run out before it.
+    const reordered = { ...state, roster: [...state.roster.slice(1), state.roster[0]!] };
+
+    expect(() => assertRosterValid(reordered.roster, 10_000n)).toThrow(/padding goes first/);
+
+    sim.setPrivateState(state);
+    sim.openCycle(pureCircuits.budgetCommitmentOf(state.budgetTotal, state.budgetSalt));
+    sim.setPrivateState(reordered);
+    expect(() => sim.settle()).toThrow(/last roster slot must be a real payout/);
+  });
+});
+
 describe('roster validation', () => {
-  it('pads short rosters to the circuit width with zero-value slots', () => {
-    const roster = padRoster(payouts(1n, 2n));
+  it('pads short rosters to the circuit width, padding first', () => {
+    const { roster, encryptionKeys } = padRoster(payouts(1n, 2n));
     expect(roster).toHaveLength(MAX_RECIPIENTS);
-    expect(roster.filter((entry) => entry.amount === 0n)).toHaveLength(MAX_RECIPIENTS - 2);
+    expect(encryptionKeys).toHaveLength(MAX_RECIPIENTS);
+    expect(roster.slice(0, MAX_RECIPIENTS - 2).every((entry) => entry.amount === 0n)).toBe(true);
+    expect(roster.slice(-2).map((entry) => entry.amount)).toEqual([1n, 2n]);
   });
 
   it('rejects more payouts than the circuit can prove', () => {
@@ -252,11 +305,13 @@ describe('roster validation', () => {
   });
 
   it('rejects non-positive amounts and malformed recipients', () => {
-    expect(() => padRoster([{ recipient: randomBytes32(), amount: 0n }])).toThrow(RosterError);
-    expect(() => padRoster([{ recipient: new Uint8Array(16), amount: 1n }])).toThrow(RosterError);
+    expect(() => padRoster([{ ...throwawayRecipient(), amount: 0n }])).toThrow(RosterError);
+    expect(() =>
+      padRoster([{ ...throwawayRecipient(), recipient: new Uint8Array(16), amount: 1n }]),
+    ).toThrow(RosterError);
   });
 
   it('catches a mismatched total locally, before any proving work', () => {
-    expect(() => assertRosterValid(padRoster(payouts(1n, 2n)), 4n)).toThrow(/sum to 3/);
+    expect(() => assertRosterValid(padRoster(payouts(1n, 2n)).roster, 4n)).toThrow(/sum to 3/);
   });
 });

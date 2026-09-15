@@ -4,7 +4,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { type Payout, prepareCycle, pureCircuits, randomBytes32, receiptsFor } from './index.js';
+import {
+  type Payout,
+  prepareCycle,
+  pureCircuits,
+  randomBytes32,
+  receiptsFor,
+  throwawayRecipient,
+} from './index.js';
 import { ConserveSimulator } from './simulator.js';
 
 const ORGANIZER_SK = randomBytes32();
@@ -24,11 +31,13 @@ const anchored = (sim: ConserveSimulator, commitment: Uint8Array): boolean =>
   sim.ledger.receipts.findPathForLeaf(commitment) !== undefined;
 
 describe('receipt verification', () => {
-  const alice = randomBytes32();
-  const bob = randomBytes32();
+  const aliceKeys = throwawayRecipient();
+  const bobKeys = throwawayRecipient();
+  const alice = aliceKeys.recipient;
+  const bob = bobKeys.recipient;
   const payouts: Payout[] = [
-    { recipient: alice, amount: 6_000n },
-    { recipient: bob, amount: 4_000n },
+    { ...aliceKeys, amount: 6_000n },
+    { ...bobKeys, amount: 4_000n },
   ];
 
   it('accepts a recipient checking their own receipt', () => {

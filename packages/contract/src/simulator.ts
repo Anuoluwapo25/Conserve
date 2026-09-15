@@ -6,7 +6,9 @@
 
 import {
   type CircuitContext,
+  type ZswapLocalState,
   createCircuitContext,
+  decodeZswapLocalState,
   createConstructorContext,
   sampleContractAddress,
 } from '@midnight-ntwrk/compact-runtime';
@@ -19,7 +21,7 @@ import {
   witnesses,
 } from './index.js';
 
-/** Stand-in Zswap coin public key; settlement does not move coins at Level 4. */
+/** Stand-in coin public key for the organizer's side of the simulated transactions. */
 const TEST_COIN_PUBLIC_KEY = '0'.repeat(64);
 
 export class ConserveSimulator {
@@ -27,12 +29,20 @@ export class ConserveSimulator {
   readonly address = sampleContractAddress();
   private context: CircuitContext<ConservePrivateState>;
 
-  constructor(privateState: ConservePrivateState) {
+  /**
+   * @param payoutToken The token type payouts are made in. Any 32 bytes will do
+   *   in-process: nothing here checks that the funding coin exists.
+   */
+  constructor(
+    privateState: ConservePrivateState,
+    readonly payoutToken = randomToken(),
+  ) {
     this.contract = new Contract<ConservePrivateState>(witnesses);
     const organizerPk = pureCircuits.organizerPublicKey(privateState.organizerSecretKey);
     const initial = this.contract.initialState(
       createConstructorContext(privateState, TEST_COIN_PUBLIC_KEY),
       organizerPk,
+      payoutToken,
     );
     this.context = createCircuitContext(
       this.address,
@@ -45,6 +55,15 @@ export class ConserveSimulator {
   /** The public state, exactly as a block explorer would see it. */
   get ledger(): Ledger {
     return ledger(this.context.currentQueryContext.state);
+  }
+
+  /**
+   * The shielded coins the last circuit call spent and created. A settlement's
+   * payouts are here, and so is the evidence that its shape does not depend on
+   * how many of them are real.
+   */
+  get zswap(): ZswapLocalState {
+    return decodeZswapLocalState(this.context.currentZswapLocalState);
   }
 
   get privateState(): ConservePrivateState {
@@ -66,4 +85,8 @@ export class ConserveSimulator {
     const { context } = this.contract.impureCircuits.settle(this.context);
     this.context = context;
   }
+}
+
+function randomToken(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(32));
 }
