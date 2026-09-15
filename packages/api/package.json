@@ -39,7 +39,7 @@
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.1.1",
     "@midnight-ntwrk/midnight-js-types": "4.1.1",
     "@midnight-ntwrk/zswap": "4.0.0",
-    "effect": "^3.22.1"
+    "effect": "^3.22.2"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
