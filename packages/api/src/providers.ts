@@ -12,8 +12,9 @@ import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-pri
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import type { ConservePrivateState } from '@conserve/contract';
+import type { DemoDollarPrivateState } from '@conserve/contract/demo-dollar';
 import { CONSERVE_PRIVATE_STATE_ID, type NetworkConfig } from './config.js';
-import type { ConserveCircuitId } from './contract.js';
+import type { ConserveCircuitId, DemoDollarCircuitId } from './contract.js';
 
 export type ConserveProviders = MidnightProviders<
   ConserveCircuitId,
@@ -21,17 +22,41 @@ export type ConserveProviders = MidnightProviders<
   ConservePrivateState
 >;
 
+export type DemoDollarProviders = MidnightProviders<
+  DemoDollarCircuitId,
+  string,
+  DemoDollarPrivateState
+>;
+
 /** Wallet-side providers, supplied by either the headless wallet or the browser connector. */
 export type WalletProviders = Pick<ConserveProviders, 'walletProvider' | 'midnightProvider'>;
 
 /**
- * Locates the contract package's `managed/conserve/` directory, where the
- * Compact compiler wrote the prover keys, verifier keys and ZK IR.
+ * Locates a contract's directory under the contract package's `managed/`, where
+ * the Compact compiler wrote its prover keys, verifier keys and ZK IR.
  */
-export const zkAssetsDirectory = (): string => {
+export const zkAssetsDirectory = (contract: 'conserve' | 'demo-dollar' = 'conserve'): string => {
   const require = createRequire(import.meta.url);
   const entry = require.resolve('@conserve/contract');
-  return resolve(dirname(entry), '../managed/conserve');
+  return resolve(dirname(entry), `../managed/${contract}`);
+};
+
+/**
+ * How long to wait for one proof.
+ *
+ * The client's own default is five minutes, and a `settle` proof takes longer
+ * than that: it proves the split and sixteen shielded payouts in one circuit,
+ * which measured a little over five minutes on a developer machine. Exceeding
+ * the limit aborts the request, and the failure surfaces as a transaction that
+ * simply never arrives, so the default here is generous and the environment can
+ * raise it further on slower hardware.
+ */
+const PROOF_TIMEOUT_MS = 45 * 60 * 1000;
+
+const proofTimeout = (): number => {
+  const configured = process.env.CONSERVE_PROOF_TIMEOUT_MS;
+  const parsed = configured === undefined ? Number.NaN : Number(configured);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : PROOF_TIMEOUT_MS;
 };
 
 export type ProviderOptions = {
@@ -74,7 +99,42 @@ export const buildProviders = ({
     }),
     publicDataProvider: indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl),
     zkConfigProvider,
-    proofProvider: httpClientProofProvider(config.proofServerUrl, zkConfigProvider),
+    proofProvider: httpClientProofProvider(config.proofServerUrl, zkConfigProvider, {
+      timeout: proofTimeout(),
+    }),
+    walletProvider: wallet.walletProvider,
+    midnightProvider: wallet.midnightProvider,
+  };
+};
+
+/**
+ * Providers for the Demo Dollar token. It keeps no private state, but
+ * midnight-js still expects a store, so it gets its own rather than sharing the
+ * one that holds the payroll.
+ */
+export const buildDemoDollarProviders = ({
+  config,
+  wallet,
+  accountId,
+  password,
+}: ProviderOptions): DemoDollarProviders => {
+  setNetworkId(config.networkId);
+
+  const zkConfigProvider = new NodeZkConfigProvider<DemoDollarCircuitId>(
+    zkAssetsDirectory('demo-dollar'),
+  );
+
+  return {
+    privateStateProvider: levelPrivateStateProvider<string, DemoDollarPrivateState>({
+      privateStateStoreName: 'conserve-demo-dollar-state',
+      accountId,
+      privateStoragePasswordProvider: password,
+    }),
+    publicDataProvider: indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl),
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(config.proofServerUrl, zkConfigProvider, {
+      timeout: proofTimeout(),
+    }),
     walletProvider: wallet.walletProvider,
     midnightProvider: wallet.midnightProvider,
   };

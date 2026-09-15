@@ -3,62 +3,62 @@
   "payouts": [
     {
       "label": "eng-1",
-      "recipient": "564eb906a97c06374e3ec0d6416e4073f5c570b0b47bea88b6d68fef49732eee",
+      "recipient": "mn_shield-addr_preprod1wh06yytu9yjzf57yjrtwv8snkqshdc44x6mwe0fyge6vumy5g7h4mklsd90p3mvemj42ppe86sgj2sglyfg7aw43x4dsxt72vw90t6q2jwwfd",
       "amount": "1500"
     },
     {
       "label": "eng-2",
-      "recipient": "aab075754e22a56fcd13293211be5617beeb32d3105a9be94cf7bf85c99999ad",
+      "recipient": "mn_shield-addr_preprod159e8mj2yhgnttmkfejhdfv9zun667wt2czz6c6wc0qzsllw9kd5ndcmvhufl7q7tmldy4a9myej7tppj8yy8z6q5mnkgggeu9hwl29sx93y8n",
       "amount": "1400"
     },
     {
       "label": "eng-3",
-      "recipient": "40d81f7a2b6b83ffc94e695329b81a4f2c064f309cea6c85a336585024f76790",
+      "recipient": "mn_shield-addr_preprod1uwqp8jea6wkr9xmfu44dyy2sr79zea5g0ujdnpl0hu49snw424u54p04ph2wsy04c56krwxqfs6yt0huea7h5eenp02wz8d7m793ppc5mu05m",
       "amount": "1300"
     },
     {
       "label": "design",
-      "recipient": "61debb072259c77b0381beab79a5d0f07a74e4df07872fce72b4cd56dba59ec6",
+      "recipient": "mn_shield-addr_preprod1vl2a4gxtc65d2l0s03ex8fafe25uj86dkwf2egpq77u0wywlrccdj0ten9xj9jf9ewcxuma2yflnyqp62vw05wwefwanlnyeplfk29qatzd3p",
       "amount": "1200"
     },
     {
       "label": "pm",
-      "recipient": "e417eabd6abfcf2ba9535d122ffe535f77221f93856b895f80398b4fd62f0314",
+      "recipient": "mn_shield-addr_preprod1uqa72zxw4tjuvnw3tqmsmgs8fp30glsnjulhntpma2g0zmp3ppacluqe0gl4rd73l5cs74x33fqgwk9ke0l2jrknknhrca3sp0jsqec9wurr9",
       "amount": "1100"
     },
     {
       "label": "qa",
-      "recipient": "7c18f412ccaddf54faa900857902a780049d8c04f958867039c2e0a916e342cf",
+      "recipient": "mn_shield-addr_preprod173gnsjy9av3sjnl62r7s63cm0cducr4s6u0ly4awp00xz049v3fc54yjde079fl43ryn7g4kwmaqlc4fkvq3s2jvy8xxy79c7hg989qdjq5qw",
       "amount": "1000"
     },
     {
       "label": "devrel",
-      "recipient": "65cd8b76649bf8a00fb78a6ff57c26dcadee43035ae8794b001bfad2f1946018",
+      "recipient": "mn_shield-addr_preprod12lf2cns0fepnxejxgteh2mfl62z6entcmpjpq00tzxcfx38gcjfq0hhx0q2248jdx0s8gcdvf3p4lv5j0hefhdn5szq8u48rc3svejsf6pmy4",
       "amount": "900"
     },
     {
       "label": "ops",
-      "recipient": "c87ce6d3ab597952b38e8de74d8e49beedd03e3490a3dc7d5b9aa1bb977eb60b",
+      "recipient": "mn_shield-addr_preprod16a8zvt2msp047jpj9h8wcg5farhjvnekqlp8859ercmc6699c0xgyrr7l6774u8mn5385pcyxarvalf8pfml72gaz8xywy68fd9mdzc9ghzw6",
       "amount": "800"
     },
     {
       "label": "support",
-      "recipient": "f0b9a8a55a63fde4c08ddbbeabba2fc2fb7b49bc258773851b8379bd7c372dc1",
+      "recipient": "mn_shield-addr_preprod1d7tsphgeqh68v7get3mdw0z88e9de386vufdmcsydj7ac9ld7tam89py24vkwse7p9ctm5pt0tfga7pmkp8fjcpm5hgjy7amrqeqpmql8nx82",
       "amount": "700"
     },
     {
       "label": "finance",
-      "recipient": "2da27625f25aeee168dd5eecd8633ece6a9306ec70d73bc0c8ead06bdc5afe7f",
+      "recipient": "mn_shield-addr_preprod1t4r7vx23jnyz9dq94uty7xlflklg4vjkwjqrlcz2at4ptvyd2fp2vcuekzmcd4y6tewruxjtrj04e5g7sqjc0yv57n9kye7y040ndfsf52vm9",
       "amount": "600"
     },
     {
       "label": "contract-a",
-      "recipient": "77104f7ddc918716059d1db329817a54ee98337a09051335b068adfa1dbd4be2",
+      "recipient": "mn_shield-addr_preprod1xcjm5qqe68r6lva8qcsyp6z0n3gcjn0kq0k4pcvae7dtjye0yhxafrs8afw9w4yfh0nh36wslna5vjsyd8kctws35z9w6ye08vn3qjg7v70ps",
       "amount": "500"
     },
     {
       "label": "contract-b",
-      "recipient": "1517a07dd7a3115fd3126d00ff058799e858fb077cfc49ad5abbdbc956e20df1",
+      "recipient": "mn_shield-addr_preprod1e2jmuyxveppgh9hxej7x646g5ah77gsdmjq7fc4fd4nqazl5mrt4ezdxss3zkqln966x5aypves73jez43n8necrpu47659vxja0ngs8f5ayf",
       "amount": "1000"
     }
   ]

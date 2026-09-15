@@ -8,6 +8,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { MidnightBech32m, ShieldedAddress } from '@midnight-ntwrk/wallet-sdk-address-format';
 import { MAX_RECIPIENTS, type Payout } from '@conserve/api';
 
 export type PayrollFile = {
@@ -20,16 +21,33 @@ export type LabelledPayout = Payout & {
   readonly label?: string;
 };
 
-const HEX = /^(0x)?[0-9a-fA-F]{64}$/;
-
-const parseRecipient = (value: unknown, index: number): Uint8Array => {
-  if (typeof value !== 'string' || !HEX.test(value)) {
+/**
+ * A recipient is their shielded wallet address. It carries the two keys a
+ * payout needs: the coin public key the coin is sent to, and the encryption
+ * public key that lets their wallet find it.
+ */
+const parseRecipient = (
+  value: unknown,
+  index: number,
+  networkId: string,
+): Pick<Payout, 'recipient' | 'encryptionKey'> => {
+  if (typeof value !== 'string') {
+    throw new Error(`payout ${index}: "recipient" must be a shielded address string`);
+  }
+  let address: ShieldedAddress;
+  try {
+    address = MidnightBech32m.parse(value.trim()).decode(ShieldedAddress, networkId);
+  } catch (cause) {
     throw new Error(
-      `payout ${index}: "recipient" must be a 32-byte hex string, got ${JSON.stringify(value)}`,
+      `payout ${index}: "recipient" is not a ${networkId} shielded address (mn_shield-addr_…): ` +
+        (cause instanceof Error ? cause.message : String(cause)),
     );
   }
-  const hex = value.startsWith('0x') ? value.slice(2) : value;
-  return Uint8Array.from(hex.match(/../g)!.map((byte) => parseInt(byte, 16)));
+  const coin = address.coinPublicKey.toHexString();
+  return {
+    recipient: Uint8Array.from(coin.match(/../g)!, (byte) => parseInt(byte, 16)),
+    encryptionKey: address.encryptionPublicKey.toHexString(),
+  };
 };
 
 const parseAmount = (value: unknown, where: string): bigint => {
@@ -45,7 +63,7 @@ const parseAmount = (value: unknown, where: string): bigint => {
   }
 };
 
-export const parsePayroll = (raw: string): PayrollFile => {
+export const parsePayroll = (raw: string, networkId: string): PayrollFile => {
   const data: unknown = JSON.parse(raw);
   if (typeof data !== 'object' || data === null) {
     throw new Error('payroll file must be a JSON object');
@@ -63,7 +81,7 @@ export const parsePayroll = (raw: string): PayrollFile => {
   const parsed = payouts.map((payout, index) => {
     const entry = payout as Record<string, unknown>;
     return {
-      recipient: parseRecipient(entry.recipient, index),
+      ...parseRecipient(entry.recipient, index, networkId),
       amount: parseAmount(entry.amount, `payout ${index} ("amount")`),
       label: typeof entry.label === 'string' ? entry.label : undefined,
     };
@@ -81,5 +99,5 @@ export const parsePayroll = (raw: string): PayrollFile => {
   return { budget: declared, payouts: parsed };
 };
 
-export const readPayroll = async (path: string): Promise<PayrollFile> =>
-  parsePayroll(await readFile(path, 'utf8'));
+export const readPayroll = async (path: string, networkId: string): Promise<PayrollFile> =>
+  parsePayroll(await readFile(path, 'utf8'), networkId);

@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: packages/contract/managed
-          key: circuits-${{ env.COMPACT_VERSION }}-${{ hashFiles('packages/contract/src/conserve.compact') }}
+          key: circuits-${{ env.COMPACT_VERSION }}-${{ hashFiles('packages/contract/src/*.compact') }}
 
       - name: Cache Compact toolchain
         uses: actions/cache@v4
@@ -61,7 +61,7 @@ jobs:
         run: npm run compact
 
       - name: Check circuit formatting
-        run: compact format --check packages/contract/src/conserve.compact
+        run: compact format --check packages/contract/src/*.compact
 
       - run: npm run build
 
@@ -74,7 +74,8 @@ jobs:
         run: npm run format:check
 
       # Surfaces the property the whole product rests on: what a settlement
-      # writes on chain does not depend on how many people were paid.
+      # writes on chain, and the shielded payouts it makes, do not depend on
+      # how many people were paid.
       - name: Verify constant public footprint
         run: |
           node packages/cli/dist/main.js simulate --json \
@@ -82,16 +83,20 @@ jobs:
           node packages/cli/dist/main.js simulate --json \
             --payroll examples/payroll.large.json > large.json
           node -e '
-            const small = require("./small.json").publicState;
-            const large = require("./large.json").publicState;
+            const small = require("./small.json");
+            const large = require("./large.json");
             const fields = ["rosterWidth", "nullifierCount", "receiptsAnchored"];
             for (const field of fields) {
-              if (small[field] !== large[field]) {
-                console.error(`leak: ${field} differs (${small[field]} vs ${large[field]})`);
+              if (small.publicState[field] !== large.publicState[field]) {
+                console.error(`leak: ${field} differs (${small.publicState[field]} vs ${large.publicState[field]})`);
                 process.exit(1);
               }
             }
-            console.log("public footprint is identical for 3 and 12 recipients");
+            if (small.shieldedPayouts !== large.shieldedPayouts) {
+              console.error(`leak: shielded payouts differ (${small.shieldedPayouts} vs ${large.shieldedPayouts})`);
+              process.exit(1);
+            }
+            console.log("public footprint and payouts are identical for 3 and 12 recipients");
           '
 
       # The verifier key is what a third party needs to check a Conserve proof
@@ -107,4 +112,5 @@ jobs:
           path: |
             packages/contract/managed/conserve/keys/*.verifier
             packages/contract/managed/conserve/compiler/contract-info.json
+            packages/contract/managed/demo-dollar/keys/*.verifier
           if-no-files-found: error

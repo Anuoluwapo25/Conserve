@@ -3,17 +3,17 @@
   "payouts": [
     {
       "label": "core-dev (local only, never leaves this file)",
-      "recipient": "9f1c0e6b4a2d8f37c5b09e14a6d3f28b7e0c5a91d4837f6b2e0a9c8d1f4b6e23",
+      "recipient": "mn_shield-addr_preprod13lvxh4drn6lgf5rdelpv9fkak9y2x05tw3r5trl447k9lewp8qfykrwnj06vwnep3ezqg8jc5zq478at2wks4uv0kn66kcvfjqfa89s43362n",
       "amount": "4500"
     },
     {
       "label": "designer",
-      "recipient": "3a7d5e91c0b46f28d1937ea50c6b8f2417d90e3ba85c17f6029d4b8ec3157a0d",
+      "recipient": "mn_shield-addr_preprod14vltmwdyrc45vc3rvx332kqqj093vjz6mxvvwaa7uhdulss3wnqua5mk3y7fqxuxz7uh38zlj5wh5uuue0jenmwh0hnd8pfgq9ycmeq8p8e60",
       "amount": "3000"
     },
     {
       "label": "ops",
-      "recipient": "c48b1f0a97e35d6280c1a4fb37e95d208b6c3f14a70d9e825b3f0c6a1d47e9b5",
+      "recipient": "mn_shield-addr_preprod16a8zvt2msp047jpj9h8wcg5farhjvnekqlp8859ercmc6699c0xgyrr7l6774u8mn5385pcyxarvalf8pfml72gaz8xywy68fd9mdzc9ghzw6",
       "amount": "2500"
     }
   ]

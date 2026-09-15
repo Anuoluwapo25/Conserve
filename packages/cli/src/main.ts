@@ -13,11 +13,15 @@ import { join as joinPath } from 'node:path';
 import {
   type ConserveDeployment,
   type NetworkProfile,
+  buildDemoDollarProviders,
   buildProviders,
   contractAddressOf,
+  demoDollarToken,
   deploy,
+  deployDemoDollar,
   isNetworkProfile,
   join,
+  mintDemoDollars,
   networkConfig,
   openCycle,
   publicState,
@@ -35,6 +39,7 @@ import {
   openWallet,
   registerForDust,
   summariseWallet,
+  waitForSync,
   walletProviders,
   waitForSpendableDust,
 } from './wallet.js';
@@ -44,11 +49,14 @@ const USAGE = `conserve — privacy-preserving payroll on Midnight
 Usage:
   conserve address                          Show the operator addresses and balances
   conserve register                         Register NIGHT for DUST generation
-  conserve deploy                           Deploy a payroll contract
+  conserve demo-dollar deploy               Deploy the Demo Dollar test token
+  conserve demo-dollar mint --token-contract <addr> --amount <n>
+                                            Mint Demo Dollars to your shielded address
+  conserve deploy --token <type>            Deploy a payroll contract paying in <type>
   conserve open --contract <addr> --payroll <file>
                                             Publish the budget commitment for a new cycle
   conserve settle --contract <addr> --payroll <file> [--receipts <dir>]
-                                            Prove and submit the split
+                                            Prove the split and pay every recipient
   conserve status --contract <addr>         Show the public state anyone can see
   conserve verify --contract <addr> --receipt <file>
                                             Check a receipt against the on-chain tree
@@ -60,9 +68,12 @@ Options:
   --offline                                 (address) derive addresses without syncing
 
 Environment:
-  CONSERVE_SEED       Hex wallet seed (required for address/deploy/open/settle)
+  CONSERVE_SEED       Hex wallet seed (required for address/deploy/open/settle/demo-dollar)
   CONSERVE_PASSWORD   Password encrypting the local private-state store
   CONSERVE_ACCOUNT    Account label scoping that store (default: "default")
+  CONSERVE_STATE_DIR  Where synced wallet state is cached (default: .conserve-state)
+  CONSERVE_PROOF_TIMEOUT_MS
+                      Per-proof timeout in ms (default: 2700000, i.e. 45 minutes)
   CONSERVE_ORGANIZER_KEY
                       Hex organizer secret key; generated and printed if unset
 `;
@@ -73,7 +84,12 @@ type Args = {
 };
 
 const parseArgs = (argv: readonly string[]): Args => {
-  const [command = 'help', ...rest] = argv;
+  const [first = 'help', ...others] = argv;
+  // `demo-dollar deploy` and `demo-dollar mint` are two-word commands.
+  const [command, rest] =
+    first === 'demo-dollar' && others[0] !== undefined && !others[0].startsWith('--')
+      ? [`${first} ${others[0]}`, others.slice(1)]
+      : [first, others];
   const flags: Record<string, string | true> = {};
   for (let i = 0; i < rest.length; i += 1) {
     const token = rest[i]!;
@@ -159,7 +175,7 @@ const connect = async (flags: Args['flags']) => {
   const keys = deriveKeys(seedFromHex(env('CONSERVE_SEED')));
   process.stderr.write('syncing wallet…');
   const wallet = await openWallet(config, keys);
-  await wallet.facade.waitForSyncedState();
+  await waitForSync(wallet);
   await wallet.save();
   process.stderr.write(' done\n');
 
@@ -169,7 +185,8 @@ const connect = async (flags: Args['flags']) => {
     accountId: process.env.CONSERVE_ACCOUNT ?? 'default',
     password: () => env('CONSERVE_PASSWORD'),
   });
-  return { config, keys, wallet, providers };
+  const walletSide = walletProviders(wallet);
+  return { config, keys, wallet, providers, walletSide };
 };
 
 /**
@@ -234,6 +251,9 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
       `network:   ${config.networkId}\nnight:     ${addresses.night}\n` +
         `shielded:  ${addresses.shielded}\ndust:      ${addresses.dust}\n` +
         `\nNIGHT:     ${formatUnits(balances.night)}\nDUST:      ${formatUnits(balances.dust)}` +
+        Object.entries(balances.shielded)
+          .map(([token, value]) => `\nshielded ${token.slice(0, 12)}…: ${value}`)
+          .join('') +
         (balances.night === 0n
           ? '\n\nFund the NIGHT address above at https://faucet.preprod.midnight.network,' +
             '\nthen register it for DUST generation so fees can be paid.'
@@ -248,7 +268,7 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
     const keys = deriveKeys(seedFromHex(env('CONSERVE_SEED')));
     process.stderr.write('syncing wallet…');
     const wallet = await openWallet(config, keys);
-    await wallet.facade.waitForSyncedState();
+    await waitForSync(wallet);
     await wallet.save();
     process.stderr.write(' done\n');
 
@@ -284,19 +304,62 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
     await wallet.close();
   },
 
+  async 'demo-dollar deploy'(flags) {
+    const { wallet, config, walletSide } = await connect(flags);
+    const providers = buildDemoDollarProviders({
+      config,
+      wallet: walletSide,
+      accountId: process.env.CONSERVE_ACCOUNT ?? 'default',
+      password: () => env('CONSERVE_PASSWORD'),
+    });
+    const address = await deployDemoDollar(providers);
+    const token = demoDollarToken(address);
+    emit(
+      flags,
+      `Demo Dollar deployed to ${config.networkId}\ntoken contract: ${address}\ntoken type:     ${token}\n\n` +
+        `Mint a working balance:  conserve demo-dollar mint --token-contract ${address} --amount 1000000\n` +
+        `Deploy Conserve on it:   conserve deploy --token ${token}`,
+      { network: config.networkId, tokenContract: address, tokenType: token },
+    );
+    await wallet.close();
+  },
+
+  async 'demo-dollar mint'(flags) {
+    const { wallet, config, walletSide } = await connect(flags);
+    const providers = buildDemoDollarProviders({
+      config,
+      wallet: walletSide,
+      accountId: process.env.CONSERVE_ACCOUNT ?? 'default',
+      password: () => env('CONSERVE_PASSWORD'),
+    });
+    const address = required(flags, 'token-contract');
+    const amount = BigInt(required(flags, 'amount'));
+    const result = await mintDemoDollars(providers, address, amount);
+    emit(
+      flags,
+      `minted ${amount} Demo Dollars (token ${demoDollarToken(address)}) to your shielded address\n` +
+        `tx: ${result.txId} @ block ${result.blockHeight}\n` +
+        'The minted amount is public: mint round working balances, not exact budgets.',
+      { amount, tokenType: demoDollarToken(address), ...result },
+    );
+    await wallet.close();
+  },
+
   async deploy(flags) {
+    const token = required(flags, 'token');
     const { wallet, providers, config } = await connect(flags);
     const secretKey = organizerKey();
-    const deployed = await deploy(providers, emptyPrivateState(secretKey));
+    const deployed = await deploy(providers, emptyPrivateState(secretKey), token);
     const address = contractAddressOf(deployed);
     emit(
       flags,
-      `deployed to ${config.networkId}\ncontract: ${address}\norganizer: ${bytesToHex(
+      `deployed to ${config.networkId}\ncontract: ${address}\npays in:  ${token}\norganizer: ${bytesToHex(
         pureCircuits.organizerPublicKey(secretKey),
       )}`,
       {
         network: config.networkId,
         contractAddress: address,
+        payoutToken: token,
         organizerPublicKey: bytesToHex(pureCircuits.organizerPublicKey(secretKey)),
       },
     );
@@ -304,7 +367,10 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
   },
 
   async open(flags) {
-    const payroll = await readPayroll(required(flags, 'payroll'));
+    const payroll = await readPayroll(
+      required(flags, 'payroll'),
+      networkConfig(profileOf(flags)).networkId,
+    );
     const { wallet, providers } = await connect(flags);
     const contractAddress = required(flags, 'contract');
     const privateState = await loadPrivateState(providers, contractAddress, organizerKey());
@@ -322,7 +388,10 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
   },
 
   async settle(flags) {
-    const payroll = await readPayroll(required(flags, 'payroll'));
+    const payroll = await readPayroll(
+      required(flags, 'payroll'),
+      networkConfig(profileOf(flags)).networkId,
+    );
     const { wallet, providers } = await connect(flags);
     const contractAddress = required(flags, 'contract');
     const privateState = await loadPrivateState(providers, contractAddress, organizerKey());
@@ -361,7 +430,8 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
 
     emit(
       flags,
-      `settled\ntx: ${result.txId} @ block ${result.blockHeight}\n` +
+      `settled and paid\ntx: ${result.txId} @ block ${result.blockHeight}\n` +
+        `${receipts.length} shielded payouts sent; each recipient's wallet will show theirs.\n` +
         `${receipts.length} receipts anchored — hand each recipient their own line:\n` +
         receipts.map((r) => `  ${r.label}: commitment ${r.commitment} nonce ${r.nonce}`).join('\n'),
       { txId: result.txId, blockHeight: result.blockHeight, receipts },
@@ -422,7 +492,10 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
   },
 
   async simulate(flags) {
-    const payroll = await readPayroll(required(flags, 'payroll'));
+    const payroll = await readPayroll(
+      required(flags, 'payroll'),
+      networkConfig(profileOf(flags)).networkId,
+    );
     const secretKey = organizerKey();
     const state = prepareCycle(secretKey, payroll.payouts, payroll.budget);
     const sim = new ConserveSimulator(state);
@@ -432,16 +505,18 @@ const commands: Record<string, (flags: Args['flags']) => Promise<void>> = {
     );
     sim.settle();
     const view = summarise(sim.ledger);
+    const payouts = sim.zswap.outputs.filter((output) => output.recipient.is_left).length;
     emit(
       flags,
-      `simulated cycle ${cycleId} with ${payroll.payouts.length} recipients — circuits accepted the split\n` +
+      `simulated cycle ${cycleId} with ${payroll.payouts.length} recipients — circuits accepted and paid the split\n` +
         `public state a block explorer would show:\n` +
         `  status:            ${view.status}\n` +
         `  budget commitment: ${view.budgetCommitment}\n` +
         `  roster slots:      ${view.rosterWidth}\n` +
         `  receipts anchored: ${view.receiptsAnchored}\n` +
+        `  shielded payouts:  ${payouts}\n` +
         `no amount and no recipient appears anywhere above.`,
-      { cycleId, recipients: payroll.payouts.length, publicState: view },
+      { cycleId, recipients: payroll.payouts.length, publicState: view, shieldedPayouts: payouts },
     );
   },
 

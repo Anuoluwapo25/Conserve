@@ -11,6 +11,7 @@ import {
   type FoundContract,
   deployContract,
   findDeployedContract,
+  submitCallTx,
 } from '@midnight-ntwrk/midnight-js-contracts';
 import type { ContractAddress } from '@midnight-ntwrk/compact-runtime';
 import {
@@ -32,17 +33,29 @@ import type { ConserveProviders } from './providers.js';
 export type ConserveDeployment =
   DeployedContract<ConserveContract> | FoundContract<ConserveContract>;
 
-/** Deploys a fresh payroll contract bound to the organizer's key. */
+const bytesFromHex = (hex: string): Uint8Array => {
+  const clean = hex.trim().replace(/^0x/, '');
+  if (!/^[0-9a-fA-F]{64}$/.test(clean)) {
+    throw new Error(`conserve: expected a 32-byte hex token type, got ${JSON.stringify(hex)}`);
+  }
+  return Uint8Array.from(clean.match(/../g)!, (byte) => parseInt(byte, 16));
+};
+
+/**
+ * Deploys a fresh payroll contract bound to the organizer's key, paying in
+ * `payoutToken` — a 32-byte hex shielded token type, fixed for the contract's life.
+ */
 export const deploy = async (
   providers: ConserveProviders,
   privateState: ConservePrivateState,
+  payoutToken: string,
 ): Promise<DeployedContract<ConserveContract>> => {
   const organizerPk = pureCircuits.organizerPublicKey(privateState.organizerSecretKey);
   return deployContract(providers, {
     compiledContract: conserveCompiledContract,
     privateStateId: CONSERVE_PRIVATE_STATE_ID,
     initialPrivateState: privateState,
-    args: [organizerPk],
+    args: [organizerPk, bytesFromHex(payoutToken)],
   });
 };
 
@@ -107,11 +120,12 @@ export type SettleResult = {
 };
 
 /**
- * Proves and submits the split.
+ * Proves, pays and submits the split.
  *
  * The roster is validated locally against the same rules the circuit enforces,
  * so a payroll that does not add up fails in milliseconds rather than after a
- * proof has been generated.
+ * proof has been generated. The organizer's wallet must hold at least the
+ * cycle's budget in the contract's payout token: it funds the settlement.
  */
 export const settle = async (
   providers: ConserveProviders,
@@ -119,14 +133,30 @@ export const settle = async (
   privateState: ConservePrivateState,
   payouts: readonly Payout[],
 ): Promise<SettleResult> => {
-  const roster = padRoster(payouts);
+  const { roster, encryptionKeys } = padRoster(payouts);
   assertRosterValid(roster, privateState.budgetTotal);
 
-  const next: ConservePrivateState = { ...privateState, roster, cycleSalt: randomBytes32() };
+  const next: ConservePrivateState = {
+    ...privateState,
+    roster,
+    encryptionKeys,
+    cycleSalt: randomBytes32(),
+    fundingNonce: randomBytes32(),
+  };
   await providers.privateStateProvider.set(CONSERVE_PRIVATE_STATE_ID, next);
 
-  const finalized = await deployment.callTx.settle();
-  const { cycleId } = await publicState(providers, contractAddressOf(deployment));
+  // Called through submitCallTx rather than deployment.callTx so each payout
+  // can be encrypted to its recipient: without their encryption key the coin
+  // still lands, but no wallet would ever notice it.
+  const contractAddress = contractAddressOf(deployment);
+  const finalized = await submitCallTx(providers, {
+    compiledContract: conserveCompiledContract,
+    circuitId: 'settle',
+    contractAddress,
+    privateStateId: CONSERVE_PRIVATE_STATE_ID,
+    additionalCoinEncPublicKeyMappings: new Map(encryptionKeys as [string, string][]),
+  } as never);
+  const { cycleId } = await publicState(providers, contractAddress);
 
   return {
     txId: finalized.public.txId,

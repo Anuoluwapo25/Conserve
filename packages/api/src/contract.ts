@@ -5,6 +5,11 @@
 import { pipe } from 'effect';
 import * as CompiledContract from '@midnight-ntwrk/compact-js/effect/CompiledContract';
 import { Contract, type ConservePrivateState, witnesses } from '@conserve/contract';
+import {
+  DemoDollarContract,
+  type DemoDollarPrivateState,
+  demoDollarWitnesses,
+} from '@conserve/contract/demo-dollar';
 
 export type ConserveContract = Contract<ConservePrivateState>;
 
@@ -22,4 +27,15 @@ export const conserveCompiledContract = pipe(
   CompiledContract.make<ConserveContract, ConservePrivateState>('conserve', Contract),
   CompiledContract.withWitnesses(witnesses),
   CompiledContract.withCompiledFileAssets('conserve'),
+);
+
+export type DemoDollar = DemoDollarContract<DemoDollarPrivateState>;
+
+export type DemoDollarCircuitId = 'mint';
+
+/** The compiled Demo Dollar token, resolved against `managed/demo-dollar/`. */
+export const demoDollarCompiledContract = pipe(
+  CompiledContract.make<DemoDollar, DemoDollarPrivateState>('demo-dollar', DemoDollarContract),
+  CompiledContract.withWitnesses(demoDollarWitnesses as never),
+  CompiledContract.withCompiledFileAssets('demo-dollar'),
 );

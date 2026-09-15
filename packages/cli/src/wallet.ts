@@ -64,6 +64,8 @@ export const walletConfiguration = (config: NetworkConfig) => ({
 export type OperatorWallet = {
   readonly facade: WalletFacade;
   readonly keys: OperatorKeys;
+  /** Where this wallet's synced state is cached. */
+  readonly cachePath: string;
   /** Writes the synced wallet state so the next run does not replay the chain. */
   save(): Promise<void>;
   close(): Promise<void>;
@@ -88,8 +90,16 @@ let saveSequence = 0;
 /** Cached wallet state, keyed by network so profiles never cross-contaminate. */
 type WalletCache = { shielded: string; unshielded: string; dust: string };
 
-const cachePath = (config: NetworkConfig, dir: string): string =>
-  resolve(dir, `wallet-${config.networkId}.json`);
+/**
+ * One cache file per network *and* wallet. Keying by network alone meant a
+ * second seed on the same network restored the first seed's state, which can
+ * never sync, so the process sat waiting forever.
+ */
+const cachePath = (config: NetworkConfig, dir: string, keys: OperatorKeys): string =>
+  resolve(
+    dir,
+    `wallet-${config.networkId}-${keys.shieldedSecretKeys.coinPublicKey.slice(0, 16)}.json`,
+  );
 
 const readCache = async (path: string): Promise<WalletCache | undefined> => {
   try {
@@ -102,12 +112,12 @@ const readCache = async (path: string): Promise<WalletCache | undefined> => {
 export const openWallet = async (
   config: NetworkConfig,
   keys: OperatorKeys,
-  stateDir = '.conserve-state',
+  stateDir = process.env.CONSERVE_STATE_DIR ?? '.conserve-state',
 ): Promise<OperatorWallet> => {
   const configuration = walletConfiguration(config);
   const dustParameters = ledger.LedgerParameters.initialParameters().dust;
   const nightKeystore = createKeystore(keys.nightSecret, config.networkId);
-  const path = cachePath(config, stateDir);
+  const path = cachePath(config, stateDir, keys);
   const cache = await readCache(path);
 
   const facade = await WalletFacade.init({
@@ -185,6 +195,7 @@ export const openWallet = async (
   return {
     facade,
     keys,
+    cachePath: path,
     save,
     close: async () => {
       clearInterval(checkpoint);
@@ -233,16 +244,18 @@ export const walletProviders = (
 export type WalletSummary = {
   readonly night: bigint;
   readonly dust: bigint;
+  /** Shielded balance per token type, e.g. the Demo Dollars a payout delivered. */
+  readonly shielded: Readonly<Record<string, bigint>>;
   readonly synced: boolean;
 };
 
 export const summariseWallet = async (wallet: OperatorWallet): Promise<WalletSummary> => {
-  const state = await wallet.facade.waitForSyncedState();
+  const state = await waitForSync(wallet);
   const night = (Object.values(state.unshielded.balances) as bigint[]).reduce((a, b) => a + b, 0n);
   // DUST accrues over time against registered NIGHT, so its balance is a
   // function of the moment you ask.
   const dust = state.dust.balance(new Date());
-  return { night, dust, synced: state.isSynced };
+  return { night, dust, shielded: { ...state.shielded.balances }, synced: state.isSynced };
 };
 
 export type DustRegistration =
@@ -300,5 +313,57 @@ export const waitForSpendableDust = async (
       throw new Error(`no spendable DUST coin within ${timeoutMs}ms`);
     }
     await new Promise((r) => setTimeout(r, pollMs));
+  }
+};
+
+/** How long sync may go without applying a single event before it is declared stuck. */
+const SYNC_STALL_MS = 10 * 60 * 1000;
+
+/**
+ * Waits for a strictly synced wallet, and fails instead of waiting forever.
+ *
+ * A cache can fall out of step with the chain — after a network upgrade that
+ * re-indexes history, for instance — and the SDK then rejects every update
+ * ("values inserted non-linearly into … commitment tree") while reporting
+ * nothing to the caller. `waitForSyncedState` never resolves, and a command
+ * that looks busy has in fact stopped. Watching the applied indices turns that
+ * into an error with a remedy.
+ */
+export const waitForSync = async (
+  wallet: OperatorWallet,
+  stallMs = SYNC_STALL_MS,
+): Promise<Awaited<ReturnType<OperatorWallet['facade']['waitForSyncedState']>>> => {
+  let lastProgress = '';
+  let lastChange = Date.now();
+  let stalled: (() => void) | undefined;
+  const stall = new Promise<never>((_, reject) => {
+    stalled = () =>
+      reject(
+        new Error(
+          `wallet sync made no progress for ${Math.round(stallMs / 60_000)} minute${Math.round(stallMs / 60_000) === 1 ? '' : 's'}. ` +
+            `The cached state in ${wallet.cachePath} is probably out of step with the chain; ` +
+            'move it aside and run the command again to resync from genesis.',
+        ),
+      );
+  });
+  const subscription = wallet.facade.state().subscribe((state) => {
+    const progress = [
+      state.shielded.progress?.appliedIndex,
+      state.dust.progress?.appliedIndex,
+      state.unshielded.progress?.appliedId,
+    ].join('/');
+    if (progress !== lastProgress) {
+      lastProgress = progress;
+      lastChange = Date.now();
+    }
+  });
+  const timer = setInterval(() => {
+    if (Date.now() - lastChange > stallMs) stalled?.();
+  }, 15_000);
+  try {
+    return await Promise.race([wallet.facade.waitForSyncedState(), stall]);
+  } finally {
+    clearInterval(timer);
+    subscription.unsubscribe();
   }
 };
