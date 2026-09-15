@@ -1,0 +1,153 @@
+/**
+ * Browser wallet connection through the Midnight DApp connector (Lace and any
+ * other wallet that injects `window.midnight`).
+ *
+ * The wallet holds the keys, pays the fees and proves. This module turns what
+ * the connector exposes into the providers midnight-js needs, so the dashboard
+ * runs the same deploy, mint, open and settle workflows the CLI does — without a
+ * seed in a file.
+ */
+
+import type { ConnectedAPI, InitialAPI } from '@midnight-ntwrk/dapp-connector-api';
+import { CostModel, Transaction, type FinalizedTransaction } from '@midnight-ntwrk/ledger-v8';
+import { dappConnectorProofProvider } from '@midnight-ntwrk/midnight-js-dapp-connector-proof-provider';
+import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
+import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
+import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
+import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
+import type { MidnightProvider, WalletProvider } from '@midnight-ntwrk/midnight-js-types';
+import type { ConserveProviders, DemoDollarProviders } from '@conserve/api';
+
+declare global {
+  interface Window {
+    midnight?: Record<string, InitialAPI>;
+  }
+}
+
+export type AvailableWallet = InitialAPI & { readonly id: string };
+
+/** Connector API major version this dashboard is built against. */
+const SUPPORTED_API_MAJOR = '4.';
+
+/** Wallets that have injected a connector this dashboard can talk to. */
+export const availableWallets = (): AvailableWallet[] =>
+  Object.entries(window.midnight ?? {})
+    .filter(([, api]) => typeof api?.connect === 'function')
+    .filter(([, api]) => String(api.apiVersion ?? '').startsWith(SUPPORTED_API_MAJOR))
+    .map(([id, api]) => Object.assign(Object.create(api) as InitialAPI, api, { id }));
+
+export type WalletSession = {
+  readonly wallet: AvailableWallet;
+  readonly api: ConnectedAPI;
+  readonly networkId: string;
+  readonly indexerUri: string;
+  readonly indexerWsUri: string;
+  readonly shieldedAddress: string;
+  readonly coinPublicKey: string;
+  readonly encryptionPublicKey: string;
+};
+
+export const connectWallet = async (
+  wallet: AvailableWallet,
+  networkId: string,
+): Promise<WalletSession> => {
+  const api = await wallet.connect(networkId);
+  const [config, addresses] = await Promise.all([
+    api.getConfiguration(),
+    api.getShieldedAddresses(),
+  ]);
+  if (config.networkId !== networkId) {
+    throw new Error(
+      `${wallet.name} is on ${config.networkId}; switch it to ${networkId} and connect again.`,
+    );
+  }
+  setNetworkId(config.networkId);
+  return {
+    wallet,
+    api,
+    networkId: config.networkId,
+    indexerUri: config.indexerUri,
+    indexerWsUri: config.indexerWsUri,
+    shieldedAddress: addresses.shieldedAddress,
+    coinPublicKey: addresses.shieldedCoinPublicKey,
+    encryptionPublicKey: addresses.shieldedEncryptionPublicKey,
+  };
+};
+
+const toHex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+const fromHex = (hex: string): Uint8Array =>
+  Uint8Array.from(hex.match(/../g) ?? [], (byte) => parseInt(byte, 16));
+
+/** The wallet balances and seals; the wallet submits. */
+const walletSide = (
+  session: WalletSession,
+): {
+  walletProvider: WalletProvider;
+  midnightProvider: MidnightProvider;
+} => ({
+  walletProvider: {
+    getCoinPublicKey: () => session.coinPublicKey,
+    getEncryptionPublicKey: () => session.encryptionPublicKey,
+    balanceTx: async (tx) => {
+      const { tx: sealed } = await session.api.balanceUnsealedTransaction(toHex(tx.serialize()));
+      return Transaction.deserialize(
+        'signature',
+        'proof',
+        'binding',
+        fromHex(sealed),
+      ) as FinalizedTransaction;
+    },
+  },
+  midnightProvider: {
+    submitTx: async (tx) => {
+      await session.api.submitTransaction(toHex(tx.serialize()));
+      const [id] = tx.identifiers();
+      if (id === undefined) throw new Error('submitted transaction has no identifier');
+      return id;
+    },
+  },
+});
+
+/**
+ * Where the browser fetches a contract's proving keys and ZK IR: this site's
+ * `zk/<contract>/`, a copy of what the Compact compiler wrote to `managed/`.
+ */
+export const zkBaseUrl = (contract: 'conserve' | 'demo-dollar'): string =>
+  new URL(`zk/${contract}/`, document.baseURI).toString();
+
+type ProviderKinds = {
+  conserve: ConserveProviders;
+  'demo-dollar': DemoDollarProviders;
+};
+
+/**
+ * Providers for one contract, backed by the connected wallet.
+ *
+ * The private state — for Conserve, the roster — is encrypted with `password`
+ * and kept in this browser's IndexedDB. It never leaves the machine.
+ */
+export const browserProviders = async <K extends keyof ProviderKinds>(
+  session: WalletSession,
+  contract: K,
+  password: string,
+): Promise<ProviderKinds[K]> => {
+  const zkConfigProvider = new FetchZkConfigProvider<string>(zkBaseUrl(contract));
+  const proofProvider = await dappConnectorProofProvider(
+    session.api,
+    zkConfigProvider,
+    CostModel.initialCostModel(),
+  );
+  return {
+    privateStateProvider: levelPrivateStateProvider({
+      privateStateStoreName: `conserve-browser-${contract}`,
+      accountId: session.coinPublicKey,
+      privateStoragePasswordProvider: () => password,
+    }),
+    publicDataProvider: indexerPublicDataProvider(session.indexerUri, session.indexerWsUri),
+    zkConfigProvider,
+    proofProvider,
+    ...walletSide(session),
+  } as unknown as ProviderKinds[K];
+};

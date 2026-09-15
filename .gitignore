@@ -9,6 +9,8 @@ managed/
 coverage/
 .vite/
 packages/ui/dist/
+# Proving keys copied from packages/contract/managed at build time.
+packages/ui/public/zk/
 packages/contract/managed/
 .conserve-state*/
 midnight-level-db/

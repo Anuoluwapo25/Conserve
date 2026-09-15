@@ -5,14 +5,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev": "node scripts/copy-zk.mjs && vite",
+    "build": "tsc --noEmit && node scripts/copy-zk.mjs && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@conserve/api": "0.4.0",
     "@conserve/contract": "0.4.0",
+    "@midnight-ntwrk/dapp-connector-api": "4.0.1",
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/midnight-js-dapp-connector-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@scure/base": "^2.3.0",
+    "assert": "2.1.0",
+    "events": "3.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

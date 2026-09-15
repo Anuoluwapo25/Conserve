@@ -11,6 +11,7 @@ import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { type NetworkProfile, networkConfig } from '@conserve/api/config';
 import { type Receipt, type ReceiptVerdict, verifyReceipt } from '@conserve/api/view';
 import { ledger } from '@conserve/contract';
+import { parseRecipient } from './recipient.js';
 
 export type ReceiptInput = {
   readonly cycleId: string;
@@ -36,19 +37,24 @@ const bytes = (value: string): Uint8Array => {
 export const receiptIssues = (input: ReceiptInput): string[] => {
   const issues: string[] = [];
   if (!/^\d+$/.test(input.cycleId.trim())) issues.push('Cycle must be a whole number.');
-  if (!HEX32.test(input.recipient)) issues.push('Recipient must be a 32-byte hex identifier.');
+  const recipient = parseRecipient(input.recipient);
+  if (!recipient.ok) issues.push(recipient.reason);
   if (!/^\d+$/.test(input.amount.trim())) issues.push('Amount must be a whole number.');
   if (!HEX32.test(input.nonce))
     issues.push('Nonce must be the 32-byte hex value from your receipt.');
   return issues;
 };
 
-export const toReceipt = (input: ReceiptInput): Receipt => ({
-  cycleId: BigInt(input.cycleId.trim()),
-  recipient: bytes(input.recipient),
-  amount: BigInt(input.amount.trim()),
-  nonce: bytes(input.nonce),
-});
+export const toReceipt = (input: ReceiptInput): Receipt => {
+  const recipient = parseRecipient(input.recipient);
+  if (!recipient.ok) throw new Error(recipient.reason);
+  return {
+    cycleId: BigInt(input.cycleId.trim()),
+    recipient: recipient.coinPublicKey,
+    amount: BigInt(input.amount.trim()),
+    nonce: bytes(input.nonce),
+  };
+};
 
 export const checkReceipt = async (
   profile: NetworkProfile,

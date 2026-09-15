@@ -8,6 +8,7 @@
 
 import { MAX_RECIPIENTS } from '@conserve/contract';
 import { pureCircuits } from '@conserve/contract';
+import { parseRecipient } from './recipient.js';
 
 export type Line = {
   readonly id: string;
@@ -25,8 +26,6 @@ export const emptyLine = (): Line => ({
 
 export const MAX_LINES = MAX_RECIPIENTS;
 
-const HEX32 = /^(0x)?[0-9a-fA-F]{64}$/;
-
 export type PayrollIssue = { readonly line?: string; readonly message: string };
 
 export const validate = (lines: readonly Line[]): PayrollIssue[] => {
@@ -35,10 +34,11 @@ export const validate = (lines: readonly Line[]): PayrollIssue[] => {
 
   for (const line of lines) {
     if (line.recipient.trim() === '' && line.amount.trim() === '') continue;
-    if (!HEX32.test(line.recipient.trim())) {
-      issues.push({ line: line.id, message: 'Recipient must be a 32-byte hex identifier.' });
+    const parsed = parseRecipient(line.recipient);
+    if (!parsed.ok) {
+      issues.push({ line: line.id, message: parsed.reason });
     } else {
-      const key = line.recipient.trim().toLowerCase().replace(/^0x/, '');
+      const key = toHex(parsed.coinPublicKey);
       if (seen.has(key)) {
         issues.push({
           line: line.id,
@@ -70,11 +70,6 @@ export const total = (lines: readonly Line[]): bigint =>
 export const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
-const fromHex = (value: string): Uint8Array => {
-  const hex = value.trim().replace(/^0x/, '');
-  return Uint8Array.from(hex.match(/../g)!.map((byte) => parseInt(byte, 16)));
-};
-
 /**
  * The one value this payroll would publish. Everything else — who, how much,
  * how many — stays in this tab.
@@ -84,7 +79,10 @@ export const budgetCommitment = (lines: readonly Line[], salt: Uint8Array): stri
 
 export const randomSalt = (): Uint8Array => crypto.getRandomValues(new Uint8Array(32));
 
-export const receiptPreview = (line: Line, cycleId: bigint, nonce: Uint8Array): string =>
-  toHex(
-    pureCircuits.receiptCommitment(cycleId, fromHex(line.recipient), BigInt(line.amount), nonce),
+export const receiptPreview = (line: Line, cycleId: bigint, nonce: Uint8Array): string => {
+  const parsed = parseRecipient(line.recipient);
+  if (!parsed.ok) throw new Error(parsed.reason);
+  return toHex(
+    pureCircuits.receiptCommitment(cycleId, parsed.coinPublicKey, BigInt(line.amount), nonce),
   );
+};

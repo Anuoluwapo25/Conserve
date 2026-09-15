@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DEPLOYED_CONTRACT, type NetworkProfile } from '@conserve/api/config';
 import { type CycleView, readCycle, readLedger } from './cycle.js';
+import { WalletPanel } from './WalletPanel.js';
 import {
   type Line,
   MAX_LINES,
@@ -279,9 +280,9 @@ function PayrollPanel() {
             <input
               value={line.recipient}
               onChange={(event) => update(line.id, { recipient: event.target.value })}
-              placeholder="32-byte hex identifier"
+              placeholder="Shielded address (mn_shield-addr_…)"
               spellCheck={false}
-              aria-label={`Identifier for recipient ${index + 1}`}
+              aria-label={`Shielded address for recipient ${index + 1}`}
             />
             <input
               value={line.amount}
@@ -403,9 +404,9 @@ function ReceiptPanel() {
         <input
           value={input.recipient}
           onChange={(event) => set({ recipient: event.target.value })}
-          placeholder="Your 32-byte identifier"
+          placeholder="Your shielded address (mn_shield-addr_…)"
           spellCheck={false}
-          aria-label="Recipient identifier"
+          aria-label="Your shielded address"
         />
         <input
           value={input.nonce}
@@ -465,6 +466,7 @@ export default function App() {
 
       <h2 className="section-title">Try it yourself</h2>
       <div className="panels">
+        <WalletPanel />
         <ReceiptPanel />
         <PayrollPanel />
         <ChainPanel />
