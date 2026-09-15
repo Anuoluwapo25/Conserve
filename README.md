@@ -10,10 +10,11 @@ it, teammates read each other's, and a block explorer keeps it forever. Move
 payroll off chain and the privacy comes back — but so does "trust us, it added
 up."
 
-Conserve keeps both. Built on [Midnight](https://midnight.network), it proves
-in zero knowledge that a payroll paid out exactly its budget, with every
-recipient paid once — without revealing a single amount, a single recipient, or
-even how many people were paid.
+Conserve keeps both. Built on [Midnight](https://midnight.network), it pays a
+team in one transaction that proves, in zero knowledge, that the payouts came to
+exactly the committed budget and that nobody was paid twice — without revealing a
+single amount, a single recipient, or even how many people were paid. The sum
+that is proved is the sum that moves.
 
 ## Try it — live on Midnight Preprod
 
@@ -67,18 +68,24 @@ number itself stays private. Committing first matters: if the budget and the
 split were published together, the organizer could pick whatever total makes
 their payouts add up.
 
-**2. Settle** — a zero-knowledge proof that:
+**2. Settle** — one transaction that proves and pays. The organizer's wallet
+funds a single shielded coin worth the committed budget, and the circuit proves
+that:
 
-- the amounts sum to exactly the committed budget,
+- the amounts sum to exactly that budget,
 - no recipient appears twice,
-- every recipient gets a receipt anchored on chain.
+- every recipient gets a receipt anchored on chain,
 
-The chain ends up holding a commitment, sixteen nullifiers and sixteen receipt
-commitments. No amounts. No recipients. No headcount.
+then splits the coin into one shielded payout per recipient. Each payout is
+encrypted to its recipient, so it lands in their wallet and nobody else can read
+it.
 
-**Recipients** each get a private receipt. With it they can prove their
-employer settled exactly their amount, in a transaction the network accepted —
-without revealing the amount to anyone.
+The chain ends up holding a commitment, sixteen nullifiers, sixteen receipt
+commitments and sixteen shielded coins. No amounts. No recipients. No headcount.
+
+**Recipients** are paid in their own wallet, and each gets a private receipt.
+With it they can prove their employer settled exactly their amount, in a
+transaction the network accepted — without revealing the amount to anyone.
 
 ### Why headcount stays hidden
 
@@ -87,15 +94,20 @@ build it, flagging that the circuit would disclose which slots held real
 payouts — and headcount plus a known total is most of the way to individual
 salaries on a small team. So every cycle is exactly sixteen slots, padded with
 random recipients and zero amounts, all processed identically. There is no
-branch left to leak. More in [docs/architecture.md](docs/architecture.md).
+branch left to leak — and the payment works the same way: sixteen payouts every
+time, with padding slots paying zero to a throwaway key, so even the shape of
+the transaction is identical whether you pay one person or sixteen. More in
+[docs/architecture.md](docs/architecture.md).
 
 ## Quick reference
 
 ```bash
-npm test                                          # 21 circuit tests, no network
+npm test                                          # 24 circuit tests, no network
 conserve address --offline                        # derive a fundable address
 conserve register                                 # register NIGHT for DUST (fees)
-conserve deploy                                   # deploy to Preprod
+conserve demo-dollar deploy                       # a shielded test token to pay in
+conserve demo-dollar mint --token-contract <addr> --amount 1000000
+conserve deploy --token <type>                    # deploy to Preprod
 conserve open   --contract <addr> --payroll p.json
 conserve settle --contract <addr> --payroll p.json --receipts ./receipts
 conserve verify --contract <addr> --receipt receipts/cycle-1-designer.json
@@ -120,12 +132,13 @@ Start with [`packages/contract/src/conserve.compact`](packages/contract/src/cons
 
 ## Limitations
 
-Conserve proves a payroll was **computed** honestly. It does not yet **move**
-the tokens; shielded payouts are next on the [roadmap](docs/roadmap.md).
-Organizers currently run cycles from a CLI rather than a browser wallet.
+Opening a cycle commits to a budget but does not escrow it, so nothing forces an
+organizer to settle; escrowing would put the total in public state, which is the
+one thing the design keeps private. Cycles are run one at a time, and a
+recipient can prove a single receipt but not yet a total across cycles.
 
-Proving needs the payroll in the clear, so the proof server sees it. Run it
-locally — the default is `127.0.0.1:6300` for exactly this reason. The full
+Proving needs the payroll in the clear, so whoever proves sees it — the local
+proof server from the CLI, or your wallet's prover from the dashboard. The full
 privacy analysis, including known weaknesses, is in
 [docs/privacy-model.md](docs/privacy-model.md).
 

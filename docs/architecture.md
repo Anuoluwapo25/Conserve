@@ -13,11 +13,13 @@ matters in between them into a proof.
                   │                             cycleId++
                   │
   roster (16) ────┤  settle
-  amounts     ────┼──▶ ZK proof of:          ─▶ 16 nullifiers
-  nonces      ────┘     sum == total            16 receipt commitments
-                        all recipients          status = settled
-                          distinct              settledCycles++
-                        commitment opens
+  amounts     ────┤──▶ ZK proof of:          ─▶ 16 nullifiers
+  nonces      ────┤     sum == total            16 receipt commitments
+                  │     all recipients          status = settled
+  wallet funds ───┘       distinct              settledCycles++
+  one coin = total      commitment opens
+                        and pays:            ─▶ 16 shielded payouts,
+                          coin ─▶ 16 sends        encrypted to recipients
 ```
 
 ## Why two transactions
@@ -32,14 +34,16 @@ circular.
 ## The circuits
 
 `packages/contract/src/conserve.compact` exports four pure helpers and two
-transacting circuits.
+transacting circuits. The contract is bound at deployment to an organizer key
+and a `payoutToken`, the shielded token every payout is made in.
 
 **`openCycle(commitment)`** — checks no cycle is currently open, checks the
 caller holds the organizer secret whose hash is on the ledger, bumps `cycleId`
 and stores the commitment.
 
-**`settle()`** — the privacy-critical core. It reads four witnesses (the roster,
-the budget total, the budget salt and a per-cycle salt) and proves:
+**`settle()`** — the privacy-critical core. It reads five witnesses (the roster,
+the budget total, the budget salt, a per-cycle salt and the funding coin's
+nonce) and proves, then pays:
 
 1. **The commitment opens.** `budgetCommitmentOf(total, salt)` must equal the
    `budgetCommitment` already on the ledger.
@@ -52,11 +56,23 @@ the budget total, the budget salt and a per-cycle salt) and proves:
    paid twice in one cycle and no slot can be quietly reused.
 4. **Receipts.** Each slot contributes one salted nullifier and one receipt
    commitment to public state.
+5. **Payment.** The organizer's wallet supplies one shielded coin worth exactly
+   the committed total. The contract receives it — which discloses only its
+   commitment — and then, slot by slot, spends the running coin, sends the
+   slot's amount to the slot's recipient and carries the change forward, all
+   inside the same transaction. The final change must be zero. Because no
+   intermediate balance is ever written to the ledger, no salary can be read
+   off as the difference between two balances.
+
+Each payout is encrypted to its recipient's encryption key, supplied off-chain
+by the organizer's tooling from the recipient's shielded address, so the
+recipient's wallet finds the coin without being told about it.
 
 ## The padding, and why it is not a detail
 
-The roster is a fixed sixteen slots. Real payouts fill the first _n_; the client
-pads the rest with a random recipient and a zero amount.
+The roster is a fixed sixteen slots. The client fills the first 16 − _n_ with
+padding — a throwaway recipient key and a zero amount — and puts the _n_ real
+payouts last.
 
 The first version of this contract did the obvious thing instead — it looped
 over the roster and only wrote a nullifier when `amount > 0`. The Compact
@@ -76,14 +92,33 @@ entirely: the circuit has no notion of an active slot, so there is nothing to
 leak. A settlement writes exactly sixteen nullifiers and sixteen receipts
 whether you paid two people or twelve.
 
+Payment adds a second reason for the ordering. The standard library's
+`sendImmediateShielded` creates a change coin unless the change is exactly zero.
+If that happened mid-roster, the number of change coins would vary with the
+split. With padding first, change reaches zero only at the final slot, so every
+settlement makes sixteen payouts and fifteen change coins. Padding pays zero to
+a key whose secret was discarded, and that zero-value coin is encrypted like any
+real payout.
+
 The cost is a fixed sixteen-recipient ceiling per cycle and a constant proving
 cost. Both are the right trade.
+
+## Circuit size
+
+`settle` compiles to 511,434 rows, under the 2^19 limit, with a 154 MB proving
+key. An earlier draft nested a second hash inside each receipt commitment;
+sixteen of those pushed it to 577,473 rows, past 2^19, which doubled the proving
+key to 305 MB and roughly doubled the memory a proof server needs. The receipt
+commitment is now one flat hash over the same values. `zkir mock-compile` on
+`managed/conserve/zkir/settle.bzkir` prints the row count, and is worth running
+before any change to the circuit.
 
 ## Public state
 
 | Field              | What it reveals                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------- |
 | `organizer`        | A hash of the organizer's key. Identifies the payer across cycles by design.                              |
+| `payoutToken`      | The shielded token payouts are made in. Not how much of it moves.                                         |
 | `cycleId`          | How many cycles have been opened.                                                                         |
 | `status`           | `dormant` / `open` / `settled`.                                                                           |
 | `budgetCommitment` | A commitment. Reveals the total only to someone already holding the salt.                                 |
@@ -92,26 +127,25 @@ cost. Both are the right trade.
 | `settledCycles`    | How many cycles completed.                                                                                |
 | `MAX_RECIPIENTS`   | The constant 16. A protocol parameter, not a secret.                                                      |
 
-No amount, no recipient, and no headcount appears anywhere in that table. Two
-tests in `packages/contract/src/conserve.test.ts` assert this directly, and CI
-fails the build if a 3-recipient and a 12-recipient cycle ever differ in their
-public footprint.
+No amount, no recipient, and no headcount appears anywhere in that table, and
+none can be read from the shielded payouts either. Tests in
+`packages/contract/src/conserve.test.ts` assert this directly: CI fails the
+build if a 2-recipient and an 11-recipient cycle ever differ in their public
+footprint or in the shape of their shielded coin activity.
 
 ## Packages
 
-| Package              | Role                                                                                                                   |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `@conserve/contract` | The Compact source, the generated bindings, witness implementations, roster construction and the in-process simulator. |
-| `@conserve/api`      | Provider wiring and the deploy / open / settle workflows. `./view` is the browser-safe read-only projection.           |
-| `@conserve/cli`      | The operator: key derivation, wallet, and the commands.                                                                |
-| `@conserve/ui`       | The dashboard.                                                                                                         |
+| Package              | Role                                                                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@conserve/contract` | The Compact sources (Conserve and the Demo Dollar test token), generated bindings, witnesses, roster construction and the in-process simulator. |
+| `@conserve/api`      | Provider wiring and the deploy / mint / open / settle workflows. `./view`, `./conserve` and `./demo-dollar` are browser-safe.                   |
+| `@conserve/cli`      | The organizer's command line: key derivation, headless wallet, and the commands.                                                                |
+| `@conserve/ui`       | The dashboard, including the DApp-connector wallet flow that runs a cycle from Lace.                                                            |
 
-## What Level 4 does not do
+## What it does not do yet
 
-The contract proves the split is correct and complete. It does not yet _move_
-the tokens — shielded transfers land in Level 5, alongside recurring cycles and
-recipient-side threshold proofs. The receipt tree is already in place because
-those threshold proofs are membership proofs against it.
-
-This is a real limitation and worth stating plainly: today Conserve proves a
-payroll was computed honestly, not that it was paid. See [roadmap.md](roadmap.md).
+Opening a cycle commits to a budget but does not escrow it, so recipients cannot
+force a settlement; see [privacy-model.md](privacy-model.md) for why. Cycles are
+run one at a time by hand, and recipients cannot yet prove anything about their
+pay beyond a single receipt. Recurring cycles and threshold proofs over the
+receipt tree are next; see [roadmap.md](roadmap.md).

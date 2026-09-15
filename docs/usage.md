@@ -9,18 +9,20 @@ Every command takes `--network preprod` (default) or `--network undeployed`, and
 {
   "budget": "10000",
   "payouts": [
-    { "label": "core-dev", "recipient": "9f1c0e…6e23", "amount": "4500" },
-    { "label": "designer", "recipient": "3a7d5e…7a0d", "amount": "3000" },
-    { "label": "ops", "recipient": "c48b1f…e9b5", "amount": "2500" }
+    { "label": "core-dev", "recipient": "mn_shield-addr_preprod13lvxh…", "amount": "4500" },
+    { "label": "designer", "recipient": "mn_shield-addr_preprod14vltm…", "amount": "3000" },
+    { "label": "ops", "recipient": "mn_shield-addr_preprod16a8zv…", "amount": "2500" }
   ]
 }
 ```
 
-`recipient` is a 32-byte hex identifier. `label` is for you: it is stripped
-before anything reaches a circuit and never leaves the machine. `budget` is
-optional — omit it and the payouts' sum is used — but stating it is worth the
-keystroke, because a mismatch is caught immediately with a readable message
-instead of surfacing as a proof failure.
+`recipient` is the recipient's shielded address for the network you are paying
+on (`mn_shield-addr_preprod1…`). It carries both keys a payout needs: the one
+the coin is sent to, and the one it is encrypted to so their wallet finds it.
+`label` is for you: it is stripped before anything reaches a circuit and never
+leaves the machine. `budget` is optional — omit it and the payouts' sum is used —
+but stating it is worth the keystroke, because a mismatch is caught immediately
+with a readable message instead of surfacing as a proof failure.
 
 At most 16 payouts per cycle. Amounts must be positive whole numbers.
 

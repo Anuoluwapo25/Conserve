@@ -51,9 +51,33 @@ in the clear, so a hosted one would defeat the point:
 
 ```bash
 docker run -d --rm -p 6300:6300 --name conserve-proof-server \
+  -v midnight-zk-params:/.cache/midnight/zk-params \
   midnightntwrk/proof-server:8.1.0 -- \
-  'midnight-proof-server --port 6300 --verbose'
+  'midnight-proof-server --port 6300 --num-workers 2 --job-timeout 3600'
 ```
+
+The volume keeps the public proving parameters the server downloads from
+`srs.midnight.network`. Without it every new container downloads them again,
+including a 100 MB set the first settlement needs. If a download fails partway
+through a proof, the client sees `400 Bad Request` with no further detail; if
+one fails at startup, the container exits.
+
+A settlement is proof-heavy: one proof for the payroll circuit, plus one for
+each of the sixteen shielded payouts and the coins the wallet spends to fund
+them — around fifty proofs, a few minutes each on a laptop. Two things follow.
+
+**Give Docker memory.** Proofs run in parallel up to `--num-workers`, and each
+one is hungry; settling peaked near 7 GB with two workers. Eight is a sensible
+floor for Docker's memory limit (Docker Desktop → Settings → Resources). More
+workers on a machine that cannot feed them makes settlement slower, not faster,
+and the proof server is killed outright when it runs out — exit code 137, which
+reaches the CLI as a connection refused partway through proving.
+
+**Do not shorten the job timeout.** `--job-timeout 3600` keeps queued proofs
+from being cancelled while a long one runs. The client has a matching deadline
+per proof, 45 minutes by default; `CONSERVE_PROOF_TIMEOUT_MS` raises or lowers
+it. Both exist because the payroll proof itself takes over five minutes, and an
+aborted proof surfaces as a transaction that simply never arrives.
 
 The image tag has to match the ledger version the client is built against —
 `@midnight-ntwrk/ledger-v8`, pinned to 8.1.0 in the root `package.json`. Note
@@ -62,6 +86,21 @@ older `midnightnetwork/proof-server` stops at ledger 7 and its `latest` tag is
 far behind. Pairing an 8.x client with a 7.x proof server does not fail
 cleanly — the server accepts the `/prove` request and then spins on one core
 indefinitely, which looks exactly like a slow proof.
+
+## Payout token
+
+Conserve pays in a shielded token, fixed at deployment. Preprod has no shielded
+token a faucet will hand out, so the repository ships one — Demo Dollar — for
+testing:
+
+```bash
+node packages/cli/dist/main.js demo-dollar deploy
+node packages/cli/dist/main.js demo-dollar mint --token-contract <addr> --amount 1000000
+node packages/cli/dist/main.js deploy --token <token type>
+```
+
+Mint a round working balance rather than one cycle's exact budget: mint amounts
+are public, and minting the budget would reveal the total the commitment hides.
 
 ## Operator secrets
 
