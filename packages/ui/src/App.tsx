@@ -43,6 +43,18 @@ const DEMO_RECEIPT: ReceiptInput = {
   nonce: 'cb82a2c7cfab05619eb3cfadb5554db635e9b79b3b94d20d49f6664877479d89',
 };
 
+/**
+ * Accepts an "address amount" pair pasted into the address box, which is how the
+ * payouts are written everywhere else, and splits it across the two fields.
+ */
+const splitPasted = (value: string): Partial<Line> => {
+  const [address, amount, ...rest] = value.trim().split(/[\s,]+/);
+  if (rest.length > 0 || amount === undefined || !/^\d+$/.test(amount)) {
+    return { recipient: value };
+  }
+  return { recipient: address ?? '', amount };
+};
+
 const Field = ({ label, value }: { label: string; value: string }) => (
   <div className="field">
     <dt>{label}</dt>
@@ -281,7 +293,7 @@ function PayrollPanel() {
             />
             <input
               value={line.recipient}
-              onChange={(event) => update(line.id, { recipient: event.target.value })}
+              onChange={(event) => update(line.id, splitPasted(event.target.value))}
               placeholder="Shielded address (mn_shield-addr_…)"
               spellCheck={false}
               aria-label={`Shielded address for recipient ${index + 1}`}
