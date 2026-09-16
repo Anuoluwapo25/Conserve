@@ -24,7 +24,19 @@ declare global {
   }
 }
 
-export type AvailableWallet = InitialAPI & { readonly id: string };
+/**
+ * An injected wallet, kept as the object the extension put on `window.midnight`.
+ *
+ * Never copy or re-wrap it: these are class instances with private fields, and a
+ * copy loses its identity, so the first call fails with "attempted to get
+ * private field on non-instance". The id travels beside the API instead.
+ */
+export type AvailableWallet = {
+  readonly id: string;
+  readonly api: InitialAPI;
+  /** Whether it speaks the connector version this dashboard is built against. */
+  readonly supported: boolean;
+};
 
 /** Connector API major version this dashboard is built against. */
 const SUPPORTED_API_MAJOR = '4.';
@@ -33,8 +45,11 @@ const SUPPORTED_API_MAJOR = '4.';
 export const availableWallets = (): AvailableWallet[] =>
   Object.entries(window.midnight ?? {})
     .filter(([, api]) => typeof api?.connect === 'function')
-    .filter(([, api]) => String(api.apiVersion ?? '').startsWith(SUPPORTED_API_MAJOR))
-    .map(([id, api]) => Object.assign(Object.create(api) as InitialAPI, api, { id }));
+    .map(([id, api]) => ({
+      id,
+      api,
+      supported: String(api.apiVersion ?? '').startsWith(SUPPORTED_API_MAJOR),
+    }));
 
 export type WalletSession = {
   readonly wallet: AvailableWallet;
@@ -51,14 +66,15 @@ export const connectWallet = async (
   wallet: AvailableWallet,
   networkId: string,
 ): Promise<WalletSession> => {
-  const api = await wallet.connect(networkId);
+  // Call through the injected object so `this` stays the wallet's own instance.
+  const api = await wallet.api.connect(networkId);
   const [config, addresses] = await Promise.all([
     api.getConfiguration(),
     api.getShieldedAddresses(),
   ]);
   if (config.networkId !== networkId) {
     throw new Error(
-      `${wallet.name} is on ${config.networkId}; switch it to ${networkId} and connect again.`,
+      `${wallet.api.name} is on ${config.networkId}; switch it to ${networkId} and connect again.`,
     );
   }
   setNetworkId(config.networkId);

@@ -133,7 +133,7 @@ export function WalletPanel() {
 
   const connect = async (wallet: AvailableWallet) => {
     setError(null);
-    setBusy(`Waiting for ${wallet.name}…`);
+    setBusy(`Waiting for ${wallet.api.name}…`);
     try {
       const next = await connectWallet(wallet, NETWORK_ID);
       setSession(next);
@@ -261,6 +261,15 @@ export function WalletPanel() {
             payroll yourself. Your wallet holds the keys and approves every transaction.
           </p>
         </header>
+        {wallets.some((wallet) => !wallet.supported) && (
+          <p className="note">
+            {wallets
+              .filter((wallet) => !wallet.supported)
+              .map((wallet) => `${wallet.api.name} speaks connector ${wallet.api.apiVersion}`)
+              .join('; ')}
+            , and this dashboard is built for 4.x. Connecting may fail.
+          </p>
+        )}
         {wallets.length === 0 ? (
           <p className="note">
             No Midnight wallet detected. Install{' '}
@@ -273,8 +282,8 @@ export function WalletPanel() {
           <div className="row">
             {wallets.map((wallet) => (
               <button key={wallet.id} onClick={() => void connect(wallet)} disabled={busy !== null}>
-                {wallet.icon && <img src={wallet.icon} alt="" className="wallet-icon" />}
-                Connect {wallet.name}
+                {wallet.api.icon && <img src={wallet.api.icon} alt="" className="wallet-icon" />}
+                Connect {wallet.api.name}
               </button>
             ))}
           </div>
@@ -290,7 +299,7 @@ export function WalletPanel() {
   return (
     <section className="panel wallet">
       <header>
-        <h2>{session.wallet.name} connected</h2>
+        <h2>{session.wallet.api.name} connected</h2>
         <p>
           <code title={session.shieldedAddress}>{short(session.shieldedAddress, 18)}</code>{' '}
           <button
