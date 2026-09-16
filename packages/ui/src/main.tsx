@@ -1,3 +1,5 @@
+// Node globals the SDK expects; must be first, before anything that uses them.
+import './shims/node-globals.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.js';

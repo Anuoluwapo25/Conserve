@@ -68,6 +68,12 @@ const parsePayouts = (text: string): { payouts: Payout[]; error?: string } => {
     if (parsed.network !== NETWORK_ID) {
       return { payouts, error: `Line ${index + 1}: that address is for ${parsed.network}.` };
     }
+    if (amount === '') {
+      return {
+        payouts,
+        error: `Line ${index + 1}: add the amount after the address, e.g. "mn_shield-addr_preprod1… 3000".`,
+      };
+    }
     if (!/^\d+$/.test(amount) || BigInt(amount) <= 0n) {
       return { payouts, error: `Line ${index + 1}: the amount must be a positive whole number.` };
     }
