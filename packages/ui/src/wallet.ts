@@ -60,6 +60,12 @@ export type WalletSession = {
   readonly shieldedAddress: string;
   readonly coinPublicKey: string;
   readonly encryptionPublicKey: string;
+  /**
+   * The prover the wallet will use. It sees the payroll in the clear, so a
+   * remote one is a disclosure — and a hosted prover will not take proving
+   * material for an arbitrary contract anyway, failing with a bare 400.
+   */
+  readonly proverUri?: string;
 };
 
 /**
@@ -123,6 +129,7 @@ export const connectWallet = async (
     shieldedAddress: addresses.shieldedAddress,
     coinPublicKey: addresses.shieldedCoinPublicKey,
     encryptionPublicKey: addresses.shieldedEncryptionPublicKey,
+    proverUri: config.proverServerUri,
   };
 };
 

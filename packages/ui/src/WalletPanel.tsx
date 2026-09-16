@@ -421,6 +421,25 @@ export function WalletPanel() {
         </div>
       )}
 
+      {session.proverUri !== undefined &&
+        !/^https?:\/\/(localhost|127\.0\.0\.1)/.test(session.proverUri) && (
+          <div className="commitment">
+            <span>This wallet proves remotely</span>
+            <p className="note">
+              {session.wallet.api.name} is set to prove at <code>{session.proverUri}</code>. Proving
+              needs the payroll in the clear, so that server would see it — and a hosted prover will
+              not accept proving material for your own contract, which fails as a bare{' '}
+              <code>400</code>. Point the wallet's proof server at{' '}
+              <code>http://localhost:6300</code> and run one yourself:
+            </p>
+            <code className="receipt-line">
+              docker run -d --rm -p 6300:6300 -v midnight-zk-params:/.cache/midnight/zk-params
+              midnightntwrk/proof-server:8.1.0 -- &apos;midnight-proof-server --port 6300
+              --num-workers 2 --job-timeout 3600&apos;
+            </code>
+          </div>
+        )}
+
       <h3>Run a payroll</h3>
       <label className="stack">
         <span>Passphrase protecting your payroll on this device</span>
