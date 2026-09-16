@@ -37,9 +37,10 @@ const NETWORKS: NetworkProfile[] = ['preprod', 'undeployed'];
  */
 const DEMO_RECEIPT: ReceiptInput = {
   cycleId: '1',
-  recipient: '3a7d5e91c0b46f28d1937ea50c6b8f2417d90e3ba85c17f6029d4b8ec3157a0d',
+  recipient:
+    'mn_shield-addr_preprod14vltmwdyrc45vc3rvx332kqqj093vjz6mxvvwaa7uhdulss3wnqua5mk3y7fqxuxz7uh38zlj5wh5uuue0jenmwh0hnd8pfgq9ycmeq8p8e60',
   amount: '3000',
-  nonce: 'fae123cf752fbd719f89ed0d244981d8edfca9c193dd3fb97be64ea3f5e9c6dd',
+  nonce: 'cb82a2c7cfab05619eb3cfadb5554db635e9b79b3b94d20d49f6664877479d89',
 };
 
 const Field = ({ label, value }: { label: string; value: string }) => (
@@ -110,6 +111,7 @@ function TwoViews() {
               <Field label="Status" value={moment.view.status} />
               <Field label="Payout slots" value={String(moment.view.rosterWidth)} />
               <Field label="Receipts on chain" value={String(moment.view.receiptsAnchored)} />
+              <Field label="Shielded payouts" value={String(moment.view.rosterWidth)} />
               <Field label="Amounts on chain" value="none" />
               <Field label="Names on chain" value="none" />
             </dl>
@@ -137,7 +139,7 @@ function TwoViews() {
             </p>
             <p className="note">
               {verdict.anchored
-                ? `The designer holds a private receipt for cycle ${DEMO_RECEIPT.cycleId}. It matches a commitment the network accepted, so they know they were paid exactly this — and nobody watching learns the figure.`
+                ? `The designer holds a private receipt for cycle ${DEMO_RECEIPT.cycleId}. It matches a commitment the network accepted, and the payment itself landed in their wallet as a shielded coin — so they know they were paid exactly this, and nobody watching learns the figure.`
                 : 'Claim a different amount and the commitment no longer matches anything on chain. A receipt proves one exact payment, so nobody can overstate what they were paid.'}
             </p>
             <div className="commitment">

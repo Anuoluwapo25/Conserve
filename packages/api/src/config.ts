@@ -64,7 +64,15 @@ export const networkConfig = (profile: NetworkProfile = 'preprod'): NetworkConfi
  * for a 64-character hex string before showing anything argues the opposite.
  */
 export const DEPLOYED_CONTRACT: Partial<Record<NetworkProfile, string>> = {
-  preprod: '7940f5eeb2e87e5ab8629e1b8ce7167ef37f73e976261886edf90ffed1114e5d',
+  preprod: 'ecc85abce5e6b1c286eba4f559012ff5ff0cf7bb766dbb35e4cf068b98855a9b',
+};
+
+/**
+ * The Demo Dollar token contract each network's dashboard mints from, so a
+ * visitor with a wallet can fund a payroll without deploying a token first.
+ */
+export const DEMO_DOLLAR_CONTRACT: Partial<Record<NetworkProfile, string>> = {
+  preprod: '97bd3cf03b5d74e2b83272d603907a33ecf0f8a35a00127be348e3270ec918e1',
 };
 
 /** Key under which the payer's private state is stored locally. */

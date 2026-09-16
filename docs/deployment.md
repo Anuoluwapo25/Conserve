@@ -26,7 +26,7 @@ synced state that can never arrive. Because nothing had been written, the next
 run started from genesis, so progress was permanently non-cumulative. That is
 what "17 hours without converging" actually was. Checkpointing every 30 seconds
 (atomically, via rename) makes progress survive a restart, and
-[`scripts/deploy-supervised.sh`](scripts/deploy-supervised.sh) restarts the
+[`scripts/deploy-supervised.sh`](../scripts/deploy-supervised.sh) restarts the
 deploy whenever the checkpoint stops growing.
 
 **The ZK config provider was pointed one directory short of the compiled
@@ -71,5 +71,53 @@ funded wallet holds a balance it cannot spend. `conserve register` submits that
 registration and waits for a DUST coin to become spendable — not merely for the
 balance to read non-zero, which happens earlier and still fails a submission
 with "insufficient DUST".
+
+## Paying: what it took
+
+Making `settle` move shielded coins surfaced a second set. Most of them failed
+silently — a process that looks busy and is not — which is why the fixes lean
+toward failing loudly.
+
+**The proof client gave up before the proof finished.** midnight-js's HTTP proof
+provider defaults to a five-minute timeout per proof, and the paying `settle`
+proof takes a little longer than that. The request was aborted, the error was
+swallowed along the way, and the CLI sat waiting for a transaction that had
+never been submitted. The timeout is now 45 minutes and set through
+`CONSERVE_PROOF_TIMEOUT_MS`.
+
+**The first version of the circuit was twice the size it needed to be.** Nesting
+a second hash inside each receipt commitment put `settle` at 577,473 rows —
+just past 2^19 — so the proving key doubled to 305 MB and a proof server with
+two workers ran out of Docker's memory and was killed. One flat hash over the
+same values brings it to 511,434 rows and 154 MB. `zkir mock-compile` reports
+the row count in a second, long before a failed proof would.
+
+**A proof server with a fresh container has nothing cached.** The server
+downloads public parameters on demand, including a 100 MB set the first
+settlement needs. When that download failed partway through a proof, the client
+saw `400 Bad Request` and nothing more; when one failed at startup, the container
+exited. The documented `docker run` now mounts a volume for them.
+
+**A wallet cache from before a network upgrade can never sync again.** After
+Preprod moved to node 1.0.2, a cache that had worked for weeks resumed a few
+positions out of step with the indexer, and the SDK rejected every update —
+`values inserted non-linearly into … commitment tree` — logging it without
+failing. Sync simply never completed. Commands now give up after ten minutes
+without progress and name the cache file to move aside; the cure is a fresh sync.
+Caches are also keyed per wallet now, where they used to be keyed per network,
+which silently handed one seed another seed's state.
+
+**On an idle local chain, the DUST wallet cannot pay a fee of one.** Fee prices
+fall as blocks go empty. After a few hours the local chain priced a contract call
+at a single unit of DUST, and the wallet SDK's coin selection then picks no coins,
+re-estimates, picks none again, and loops synchronously forever — with plenty of
+DUST available. Both the CLI and the dashboard path hang there. Preprod, with real
+traffic and real fees, does not reach that price; locally, restarting the chain
+resets it.
+
+**The browser bundle needed two Node built-ins back.** The private-state store
+extends `EventEmitter` and the SDK's address codec calls `assert`; Vite replaces
+both with empty modules in a browser build, and the page failed to load at all.
+The `events` and `assert` packages supply browser versions.
 
 For the steps themselves, see [setup.md](setup.md) and [usage.md](usage.md).

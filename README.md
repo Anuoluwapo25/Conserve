@@ -27,12 +27,39 @@ sign-up, nothing to paste.
 2. **See what a recipient sees.** Press _Use the example receipt_ and verify, as
    one of that payroll's recipients, that you were paid exactly what you were
    owed — a proof only you can check.
+3. **Run one yourself.** Connect a Midnight wallet, mint some Demo Dollars, and
+   pay a payroll of your own from the browser. Your wallet holds the keys, pays
+   the fees, and builds the proof.
 
-|             |                                                                       |
-| ----------- | --------------------------------------------------------------------- |
-| Contract    | `7940f5eeb2e87e5ab8629e1b8ce7167ef37f73e976261886edf90ffed1114e5d`    |
-| State       | cycle 1 **settled** — 3 people paid; the chain shows 16 of everything |
-| `settle` tx | `557fbaee0d4171e68f4e43396ff49739d3b5b4a10fa90df159274e8442d8d213`    |
+|             |                                                                                 |
+| ----------- | ------------------------------------------------------------------------------- |
+| Contract    | `ecc85abce5e6b1c286eba4f559012ff5ff0cf7bb766dbb35e4cf068b98855a9b`              |
+| State       | cycle 1 **settled and paid** — 3 people paid, 16 shielded payouts sent          |
+| `settle` tx | `236eda1869945e61d04f516bd55f0c6c1aa6e548fc63c8838bdab65ebd80c23a`              |
+| Pays in     | Demo Dollar, `b9fa505af02fa88fcb511c730996675a670308db91f74c66e42fba638f48372f` |
+
+### Check it yourself
+
+Everything above is public state. Read it with nothing but an indexer — no
+wallet, no key:
+
+```bash
+conserve status --contract ecc85abce5e6b1c286eba4f559012ff5ff0cf7bb766dbb35e4cf068b98855a9b
+```
+
+```
+cycle:              1
+status:             settled
+cycles settled:     1
+roster slots:       16 (constant, whatever the headcount)
+nullifiers:         16
+receipts anchored:  16
+```
+
+That payroll paid **three** people. The chain shows sixteen of everything and no
+amount at all, and the settlement created thirty-three shielded coins — sixteen
+payouts, fifteen change coins, the funding coin and the organizer's change — the
+same shape for a team of one as for a team of sixteen.
 
 ## The whole idea in 30 seconds
 
@@ -141,6 +168,11 @@ Proving needs the payroll in the clear, so whoever proves sees it — the local
 proof server from the CLI, or your wallet's prover from the dashboard. The full
 privacy analysis, including known weaknesses, is in
 [docs/privacy-model.md](docs/privacy-model.md).
+
+Getting this live took eleven real bugs out of this codebase and its
+dependencies, none of them reachable from `npm test`: they needed a funded
+wallet, a real proof server or a real ledger. They are written up in
+[docs/deployment.md](docs/deployment.md).
 
 ## Documentation
 
