@@ -21,6 +21,7 @@ import {
   type WalletSession,
   availableWallets,
   browserProviders,
+  checkZkAssets,
   connectWallet,
   ensureConnected,
   isChannelClosed,
@@ -136,6 +137,7 @@ export function WalletPanel() {
   const [tokenContract, setTokenContract] = useState<string | null>(null);
   const [payrollText, setPayrollText] = useState('');
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [diagnostics, setDiagnostics] = useState<readonly string[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -531,7 +533,31 @@ export function WalletPanel() {
 
       {busy !== null && <p className="loading">{busy}</p>}
       {message !== null && <p className="verdict ok small">{message}</p>}
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && (
+        <>
+          <p className="error">{error}</p>
+          <button
+            className="ghost"
+            onClick={() =>
+              void Promise.all([checkZkAssets('conserve'), checkZkAssets('demo-dollar')]).then(
+                ([a, b]) => setDiagnostics([...a, ...b]),
+              )
+            }
+          >
+            Check this site&apos;s proving keys
+          </button>
+        </>
+      )}
+      {diagnostics !== null && (
+        <div className="commitment">
+          <span>Proving key check</span>
+          {diagnostics.map((line) => (
+            <code key={line} className="receipt-line">
+              {line}
+            </code>
+          ))}
+        </div>
+      )}
 
       {receipts.length > 0 && (
         <div className="commitment">

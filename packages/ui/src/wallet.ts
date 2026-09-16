@@ -264,6 +264,45 @@ class SiteZkConfigProvider extends ZKConfigProvider<string> {
   }
 }
 
+/**
+ * Fetches each ZK artifact a contract needs and reports what happened.
+ *
+ * The SDK reports a failed key read as one wrapped error that names neither the
+ * URL nor the status, so this asks for the same artifacts directly and returns
+ * plain results — enough to tell a missing file from a rejected name, a wrong
+ * content type or a network failure.
+ */
+export const checkZkAssets = async (
+  contract: 'conserve' | 'demo-dollar',
+): Promise<readonly string[]> => {
+  const base = zkBaseUrl(contract);
+  const circuits = contract === 'conserve' ? ['openCycle', 'settle'] : ['mint'];
+  const results: string[] = [`base ${base}`];
+  for (const circuit of circuits) {
+    for (const [what, path, ext] of [
+      ['verifier key', 'keys', '.verifier'],
+      ['circuit IR', 'zkir', '.bzkir'],
+      ['proving key', 'keys', '.prover'],
+    ] as const) {
+      const url = `${base}${path}/${circuit}${ext}`;
+      try {
+        const response = await fetch(url, { method: what === 'proving key' ? 'HEAD' : 'GET' });
+        const type = response.headers.get('content-type') ?? 'unknown';
+        const size =
+          what === 'proving key'
+            ? (response.headers.get('content-length') ?? '?')
+            : String((await response.arrayBuffer()).byteLength);
+        results.push(`${circuit} ${what}: ${response.status} ${type} ${size} bytes`);
+      } catch (cause) {
+        results.push(
+          `${circuit} ${what}: FETCH FAILED ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
+    }
+  }
+  return results;
+};
+
 type ProviderKinds = {
   conserve: ConserveProviders;
   'demo-dollar': DemoDollarProviders;
