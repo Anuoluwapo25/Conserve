@@ -62,19 +62,55 @@ export type WalletSession = {
   readonly encryptionPublicKey: string;
 };
 
+/**
+ * Network id spellings a wallet may use for the same chain. `connect` takes the
+ * id as a hint and a wallet refuses outright when it disagrees ("Network ID
+ * mismatch") without saying what it is set to — so ask for the one the contract
+ * lives on first, then try the aliases before giving up.
+ */
+const NETWORK_ALIASES: Record<string, readonly string[]> = {
+  preprod: ['preprod', 'Preprod', 'pre-prod', 'preprod-02', 'testnet-preprod'],
+  undeployed: ['undeployed', 'Undeployed'],
+};
+
+const isNetworkMismatch = (cause: unknown): boolean =>
+  /network\s*id\s*mismatch|unsupported network|wrong network/i.test(
+    String(cause instanceof Error ? cause.message : cause),
+  );
+
 export const connectWallet = async (
   wallet: AvailableWallet,
   networkId: string,
 ): Promise<WalletSession> => {
   // Call through the injected object so `this` stays the wallet's own instance.
-  const api = await wallet.api.connect(networkId);
+  let api: ConnectedAPI | undefined;
+  let mismatch: unknown;
+  for (const candidate of NETWORK_ALIASES[networkId] ?? [networkId]) {
+    try {
+      api = await wallet.api.connect(candidate);
+      break;
+    } catch (cause) {
+      if (!isNetworkMismatch(cause)) throw cause;
+      mismatch = cause;
+    }
+  }
+  if (api === undefined) {
+    throw new Error(
+      `${wallet.api.name} refused to connect on ${networkId}: its own Midnight network is set to ` +
+        `something else. Open the wallet, switch its network to ${networkId}, then connect again. ` +
+        `(${mismatch instanceof Error ? mismatch.message : String(mismatch)})`,
+    );
+  }
   const [config, addresses] = await Promise.all([
     api.getConfiguration(),
     api.getShieldedAddresses(),
   ]);
-  if (config.networkId !== networkId) {
+  // The wallet accepted a hint but reports its own network: if that is not the
+  // one the contract lives on, nothing here would work against it.
+  if (config.networkId.toLowerCase() !== networkId.toLowerCase()) {
     throw new Error(
-      `${wallet.api.name} is on ${config.networkId}; switch it to ${networkId} and connect again.`,
+      `${wallet.api.name} is connected to ${config.networkId}, but this dashboard reads a contract on ` +
+        `${networkId}. Switch the wallet's Midnight network to ${networkId} and connect again.`,
     );
   }
   setNetworkId(config.networkId);
