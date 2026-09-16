@@ -22,6 +22,8 @@ import {
   availableWallets,
   browserProviders,
   connectWallet,
+  ensureConnected,
+  isChannelClosed,
 } from './wallet.js';
 
 const NETWORK_ID = 'preprod';
@@ -146,16 +148,32 @@ export function WalletPanel() {
     }
   };
 
-  /** Runs one step, surfacing progress and errors in the panel. */
-  const step = async (label: string, work: () => Promise<string>) => {
+  /**
+   * Runs one step against a live wallet channel, surfacing progress and errors.
+   *
+   * The channel is re-checked before each step rather than trusted. A connector
+   * API is a live channel into the extension: it closes when the wallet's popup
+   * goes away or its background worker sleeps, which is easy to do in the gaps
+   * between these steps.
+   */
+  const step = async (label: string, work: (live: WalletSession) => Promise<string>) => {
+    if (session === null) return;
     setError(null);
     setMessage(null);
     setBusy(label);
     try {
-      setMessage(await work());
+      const live = await ensureConnected(session);
+      if (live !== session) setSession(live);
+      setMessage(await work(live));
       await refreshBalances().catch(() => undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(
+        isChannelClosed(cause)
+          ? `${session.wallet.api.name} closed its connection. Approve its prompt, or press Connect again, then retry.`
+          : cause instanceof Error
+            ? cause.message
+            : String(cause),
+      );
     } finally {
       setBusy(null);
     }
@@ -169,13 +187,14 @@ export function WalletPanel() {
       : null;
   }, [password]);
 
-  const conserveProviders = async () => {
-    if (session === null) throw new Error('Connect a wallet first.');
-    return browserProviders(session, 'conserve', password);
-  };
+  const conserveProviders = async (live: WalletSession) =>
+    browserProviders(live, 'conserve', password);
 
-  const privateStateFor = async (address: string): Promise<ConservePrivateState> => {
-    const providers = await conserveProviders();
+  const privateStateFor = async (
+    live: WalletSession,
+    address: string,
+  ): Promise<ConservePrivateState> => {
+    const providers = await conserveProviders(live);
     providers.privateStateProvider.setContractAddress(address);
     const stored = await providers.privateStateProvider.get(CONSERVE_PRIVATE_STATE_ID);
     if (stored === null || stored === undefined) {
@@ -187,13 +206,12 @@ export function WalletPanel() {
   };
 
   const getDollars = () =>
-    step('Minting Demo Dollars — approve in your wallet, then it proves…', async () => {
-      if (session === null) throw new Error('Connect a wallet first.');
-      const providers = await browserProviders(session, 'demo-dollar', password);
+    step('Minting Demo Dollars — approve in your wallet, then it proves…', async (live) => {
+      const providers = await browserProviders(live, 'demo-dollar', password);
       let address = tokenContract;
       if (address === null) {
         address = await deployDemoDollar(providers);
-        remember(storageKey(session, 'token'), address);
+        remember(storageKey(live, 'token'), address);
         setTokenContract(address);
       }
       const result = await mintDemoDollars(providers, address, MINT_AMOUNT);
@@ -201,12 +219,12 @@ export function WalletPanel() {
     });
 
   const deployContract = () =>
-    step('Deploying your payroll contract…', async () => {
-      if (session === null || token === null) throw new Error('Get Demo Dollars first.');
-      const providers = await conserveProviders();
+    step('Deploying your payroll contract…', async (live) => {
+      if (token === null) throw new Error('Get Demo Dollars first.');
+      const providers = await conserveProviders(live);
       const deployed = await deploy(providers, emptyPrivateState(randomBytes32()), token);
       const address = contractAddressOf(deployed);
-      remember(storageKey(session, 'contract'), address);
+      remember(storageKey(live, 'contract'), address);
       setContract(address);
       return `Payroll contract deployed: ${short(address)}. Its organizer key is encrypted in this browser.`;
     });
@@ -214,31 +232,38 @@ export function WalletPanel() {
   const parsed = useMemo(() => parsePayouts(payrollText), [payrollText]);
   const budget = parsed.payouts.reduce((sum, payout) => sum + payout.amount, 0n);
 
-  const joined = async (): Promise<{
+  const joined = async (
+    live: WalletSession,
+  ): Promise<{
     deployment: ConserveDeployment;
     state: ConservePrivateState;
   }> => {
     if (contract === null) throw new Error('Deploy a payroll contract first.');
-    const providers = await conserveProviders();
-    const state = await privateStateFor(contract);
+    const providers = await conserveProviders(live);
+    const state = await privateStateFor(live, contract);
     return { deployment: await join(providers, contract, state), state };
   };
 
   const open = () =>
-    step('Opening the cycle — committing to the budget…', async () => {
+    step('Opening the cycle — committing to the budget…', async (live) => {
       if (parsed.error !== undefined) throw new Error(parsed.error);
-      const { deployment, state } = await joined();
-      const result = await openCycle(await conserveProviders(), deployment, state, budget);
+      const { deployment, state } = await joined(live);
+      const result = await openCycle(await conserveProviders(live), deployment, state, budget);
       return `Cycle ${result.cycleId} open. The budget is committed; the amount stays in this browser.`;
     });
 
   const pay = () =>
     step(
-      'Settling — your wallet is proving 16 shielded payouts. This takes a few minutes…',
-      async () => {
+      'Settling — your wallet is proving 16 shielded payouts. This takes a few minutes; leave the wallet open…',
+      async (live) => {
         if (parsed.error !== undefined) throw new Error(parsed.error);
-        const { deployment, state } = await joined();
-        const result = await settle(await conserveProviders(), deployment, state, parsed.payouts);
+        const { deployment, state } = await joined(live);
+        const result = await settle(
+          await conserveProviders(live),
+          deployment,
+          state,
+          parsed.payouts,
+        );
         setReceipts(
           result.receipts.map((receipt) => ({
             cycleId: String(receipt.cycleId),

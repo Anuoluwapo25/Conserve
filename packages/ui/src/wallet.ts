@@ -90,6 +90,37 @@ export const connectWallet = async (
   };
 };
 
+/**
+ * Whether an error means the wallet's messaging channel is gone.
+ *
+ * A connector API object is a live channel into the extension, not a handle
+ * that keeps working. Dismissing the popup, or the extension's background
+ * worker sleeping between steps, tears it down — and every later call fails
+ * with "Remote API with channel '…' was shutdown: object can no longer be
+ * used". Reconnecting is the only cure, so recognise it and do that.
+ */
+export const isChannelClosed = (cause: unknown): boolean =>
+  /was shutdown|no longer be used|disconnect|not connected/i.test(
+    String(cause instanceof Error ? cause.message : cause),
+  );
+
+/**
+ * Returns a session whose channel is known to be live, reconnecting if the
+ * wallet has closed the old one. Long-running steps should call this first:
+ * a proof takes minutes, and the channel may not survive it.
+ */
+export const ensureConnected = async (session: WalletSession): Promise<WalletSession> => {
+  try {
+    const status = await session.api.getConnectionStatus();
+    if (status.status === 'connected' && status.networkId === session.networkId) {
+      return session;
+    }
+  } catch (cause) {
+    if (!isChannelClosed(cause)) throw cause;
+  }
+  return connectWallet(session.wallet, session.networkId);
+};
+
 const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
