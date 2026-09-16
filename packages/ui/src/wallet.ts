@@ -228,7 +228,13 @@ class SiteZkConfigProvider extends ZKConfigProvider<string> {
 
   constructor(private readonly baseUrl: string) {
     super();
-    this.fetcher = new FetchZkConfigProvider<string>(baseUrl);
+    // The fetcher keeps this function as a property and calls it as a method of
+    // itself. `fetch` must be invoked with `window` as its receiver in a
+    // browser, so an unbound reference throws "Illegal invocation" — and only
+    // in a browser, which is why it survives every test run under Node.
+    this.fetcher = new FetchZkConfigProvider<string>(baseUrl, (...args) =>
+      globalThis.fetch(...args),
+    );
   }
 
   private circuitOf(circuitId: string): string {
