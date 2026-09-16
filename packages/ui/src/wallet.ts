@@ -15,7 +15,14 @@ import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
-import type { MidnightProvider, WalletProvider } from '@midnight-ntwrk/midnight-js-types';
+import {
+  type MidnightProvider,
+  type ProverKey,
+  type VerifierKey,
+  type WalletProvider,
+  type ZKIR,
+  ZKConfigProvider,
+} from '@midnight-ntwrk/midnight-js-types';
 import type { ConserveProviders, DemoDollarProviders } from '@conserve/api';
 
 declare global {
@@ -207,6 +214,53 @@ const walletSide = (
 export const zkBaseUrl = (contract: 'conserve' | 'demo-dollar'): string =>
   new URL(`zk/${contract}/`, document.baseURI).toString();
 
+/**
+ * Serves a contract's ZK artifacts from this site, by circuit name.
+ *
+ * Key locations arrive namespaced as `<contract>#<circuit>` from parts of the
+ * stack, and the fetcher rejects a name containing `#` outright — which
+ * surfaced only as "Failed to read verifier key", naming neither the URL nor
+ * the reason. So take the circuit off the end, and say what was being fetched
+ * from where when something does fail.
+ */
+class SiteZkConfigProvider extends ZKConfigProvider<string> {
+  private readonly fetcher: FetchZkConfigProvider<string>;
+
+  constructor(private readonly baseUrl: string) {
+    super();
+    this.fetcher = new FetchZkConfigProvider<string>(baseUrl);
+  }
+
+  private circuitOf(circuitId: string): string {
+    const hash = circuitId.lastIndexOf('#');
+    return hash === -1 ? circuitId : circuitId.slice(hash + 1);
+  }
+
+  private async load<T>(what: string, circuitId: string, get: (circuit: string) => Promise<T>) {
+    const circuit = this.circuitOf(circuitId);
+    try {
+      return await get(circuit);
+    } catch (cause) {
+      throw new Error(
+        `could not load the ${what} for "${circuit}" from ${this.baseUrl}: ` +
+          `${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+  }
+
+  getProverKey(circuitId: string): Promise<ProverKey> {
+    return this.load('proving key', circuitId, (circuit) => this.fetcher.getProverKey(circuit));
+  }
+
+  getVerifierKey(circuitId: string): Promise<VerifierKey> {
+    return this.load('verifier key', circuitId, (circuit) => this.fetcher.getVerifierKey(circuit));
+  }
+
+  getZKIR(circuitId: string): Promise<ZKIR> {
+    return this.load('circuit IR', circuitId, (circuit) => this.fetcher.getZKIR(circuit));
+  }
+}
+
 type ProviderKinds = {
   conserve: ConserveProviders;
   'demo-dollar': DemoDollarProviders;
@@ -223,7 +277,7 @@ export const browserProviders = async <K extends keyof ProviderKinds>(
   contract: K,
   password: string,
 ): Promise<ProviderKinds[K]> => {
-  const zkConfigProvider = new FetchZkConfigProvider<string>(zkBaseUrl(contract));
+  const zkConfigProvider = new SiteZkConfigProvider(zkBaseUrl(contract));
   const proofProvider = await dappConnectorProofProvider(
     session.api,
     zkConfigProvider,
