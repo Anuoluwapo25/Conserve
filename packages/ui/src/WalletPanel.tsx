@@ -231,19 +231,31 @@ export function WalletPanel() {
   const conserveProviders = async (live: WalletSession) =>
     browserProviders(live, 'conserve', password);
 
-  const privateStateFor = async (
+  /**
+   * One scoped provider set for a whole step, with the contract joined.
+   *
+   * The private-state store is scoped per contract and refuses to read or write
+   * until it is told which one. Building providers more than once in a step
+   * left the later call writing through an unscoped store, which failed with
+   * "Contract address not set" after the work was already done.
+   */
+  const conserveFor = async (
     live: WalletSession,
-    address: string,
-  ): Promise<ConservePrivateState> => {
+  ): Promise<{
+    providers: Awaited<ReturnType<typeof conserveProviders>>;
+    deployment: ConserveDeployment;
+    state: ConservePrivateState;
+  }> => {
+    if (contract === null) throw new Error('Deploy a payroll contract first.');
     const providers = await conserveProviders(live);
-    providers.privateStateProvider.setContractAddress(address);
-    const stored = await providers.privateStateProvider.get(CONSERVE_PRIVATE_STATE_ID);
-    if (stored === null || stored === undefined) {
+    providers.privateStateProvider.setContractAddress(contract);
+    const state = await providers.privateStateProvider.get(CONSERVE_PRIVATE_STATE_ID);
+    if (state === null || state === undefined) {
       throw new Error(
         'This browser holds no organizer key for that contract. Open and settle it from the browser that deployed it.',
       );
     }
-    return stored;
+    return { providers, deployment: await join(providers, contract, state), state };
   };
 
   const getDollars = () =>
@@ -273,23 +285,11 @@ export function WalletPanel() {
   const parsed = useMemo(() => parsePayouts(payrollText), [payrollText]);
   const budget = parsed.payouts.reduce((sum, payout) => sum + payout.amount, 0n);
 
-  const joined = async (
-    live: WalletSession,
-  ): Promise<{
-    deployment: ConserveDeployment;
-    state: ConservePrivateState;
-  }> => {
-    if (contract === null) throw new Error('Deploy a payroll contract first.');
-    const providers = await conserveProviders(live);
-    const state = await privateStateFor(live, contract);
-    return { deployment: await join(providers, contract, state), state };
-  };
-
   const open = () =>
     step('Opening the cycle — committing to the budget…', async (live) => {
       if (parsed.error !== undefined) throw new Error(parsed.error);
-      const { deployment, state } = await joined(live);
-      const result = await openCycle(await conserveProviders(live), deployment, state, budget);
+      const { providers, deployment, state } = await conserveFor(live);
+      const result = await openCycle(providers, deployment, state, budget);
       return `Cycle ${result.cycleId} open. The budget is committed; the amount stays in this browser.`;
     });
 
@@ -298,13 +298,8 @@ export function WalletPanel() {
       'Settling — your wallet is proving 16 shielded payouts. This takes a few minutes; leave the wallet open…',
       async (live) => {
         if (parsed.error !== undefined) throw new Error(parsed.error);
-        const { deployment, state } = await joined(live);
-        const result = await settle(
-          await conserveProviders(live),
-          deployment,
-          state,
-          parsed.payouts,
-        );
+        const { providers, deployment, state } = await conserveFor(live);
+        const result = await settle(providers, deployment, state, parsed.payouts);
         setReceipts(
           result.receipts.map((receipt) => ({
             cycleId: String(receipt.cycleId),
