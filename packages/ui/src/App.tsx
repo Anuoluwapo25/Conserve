@@ -476,9 +476,9 @@ export default function App() {
 
       <footer>
         <p>
-          Organizers run cycles with <code>conserve open</code> and <code>conserve settle</code>.
-          The proof is built against a proof server they control, because the payroll is the one
-          thing that must never leave their machine.{' '}
+          Organizers run a cycle from a connected wallet above, or from the <code>conserve</code>{' '}
+          CLI. Either way the proof is built on a machine they control, because the payroll is the
+          one thing that must never leave it.{' '}
           <a href="https://github.com/Anuoluwapo25/Conserve">Source and docs on GitHub</a>.
         </p>
       </footer>

@@ -101,7 +101,12 @@ export function WalletPanel() {
   const [wallets, setWallets] = useState<AvailableWallet[]>([]);
   const [session, setSession] = useState<WalletSession | null>(null);
   const [password, setPassword] = useState('');
-  const [balances, setBalances] = useState<{ demo: bigint; dust: bigint } | null>(null);
+  const [balances, setBalances] = useState<{
+    demo: bigint;
+    dust: bigint;
+    night: bigint;
+    nightAddress: string;
+  } | null>(null);
   const [contract, setContract] = useState<string | null>(null);
   const [tokenContract, setTokenContract] = useState<string | null>(null);
   const [payrollText, setPayrollText] = useState('');
@@ -122,11 +127,18 @@ export function WalletPanel() {
 
   const refreshBalances = useCallback(async () => {
     if (session === null) return;
-    const [shielded, dust] = await Promise.all([
+    const [shielded, dust, unshielded, nightAddress] = await Promise.all([
       session.api.getShieldedBalances(),
       session.api.getDustBalance(),
+      session.api.getUnshieldedBalances(),
+      session.api.getUnshieldedAddress(),
     ]);
-    setBalances({ demo: token === null ? 0n : (shielded[token] ?? 0n), dust: dust.balance });
+    setBalances({
+      demo: token === null ? 0n : (shielded[token] ?? 0n),
+      dust: dust.balance,
+      night: Object.values(unshielded).reduce((total, value) => total + value, 0n),
+      nightAddress: nightAddress.unshieldedAddress,
+    });
   }, [session, token]);
 
   useEffect(() => {
@@ -319,7 +331,11 @@ export function WalletPanel() {
     );
   }
 
-  const ready = passwordIssue === null && busy === null;
+  // Every step pays a fee in DUST, and DUST only accrues against NIGHT that has
+  // been registered for it. Without any, each button would fail on submission
+  // for a reason the error would not explain.
+  const fundable = balances !== null && balances.dust > 0n;
+  const ready = passwordIssue === null && busy === null && fundable;
 
   return (
     <section className="panel wallet">
@@ -350,6 +366,54 @@ export function WalletPanel() {
         Paid by a Conserve payroll? Your payout arrives here as shielded Demo Dollars — visible to
         you, and to nobody else.
       </p>
+
+      {balances !== null && !fundable && (
+        <div className="commitment">
+          <span>This wallet cannot pay fees yet</span>
+          <p className="note">
+            Fees are paid in DUST, which accrues against NIGHT you have registered for it. To run a
+            payroll from this wallet:
+          </p>
+          <ol className="steps">
+            <li>
+              {balances.night > 0n ? (
+                'It already holds NIGHT.'
+              ) : (
+                <>
+                  Fund its NIGHT address at{' '}
+                  <a
+                    href="https://faucet.preprod.midnight.network"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    the Preprod faucet
+                  </a>
+                  : <code title={balances.nightAddress}>{short(balances.nightAddress, 12)}</code>{' '}
+                  <button
+                    className="ghost inline"
+                    onClick={() => void navigator.clipboard.writeText(balances.nightAddress)}
+                  >
+                    Copy
+                  </button>
+                </>
+              )}
+            </li>
+            <li>
+              Register that NIGHT for DUST generation in the wallet, and wait for DUST to appear.
+            </li>
+            <li>
+              <button
+                className="ghost"
+                onClick={() => void refreshBalances()}
+                disabled={busy !== null}
+              >
+                Check again
+              </button>
+            </li>
+          </ol>
+          <p className="note">Reading the payroll above needs none of this — only paying does.</p>
+        </div>
+      )}
 
       <h3>Run a payroll</h3>
       <label className="stack">
