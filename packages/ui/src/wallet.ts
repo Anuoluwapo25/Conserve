@@ -241,9 +241,12 @@ class SiteZkConfigProvider extends ZKConfigProvider<string> {
     try {
       return await get(circuit);
     } catch (cause) {
+      // eslint-disable-next-line no-console
+      console.error(`conserve: ${what} for "${circuit}" from ${this.baseUrl} failed`, cause);
       throw new Error(
         `could not load the ${what} for "${circuit}" from ${this.baseUrl}: ` +
           `${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
       );
     }
   }

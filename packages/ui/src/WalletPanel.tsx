@@ -99,6 +99,25 @@ const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
 /**
+ * The whole error, not just its outermost sentence.
+ *
+ * The SDK wraps failures in its own errors and keeps the reason as a `cause`:
+ * "Failed to read verifier key for conserve#openCycle" says nothing about the
+ * 404, the timeout or the rejected name underneath it. Walk the chain so the
+ * panel shows what actually went wrong.
+ */
+const describe = (cause: unknown, depth = 0): string => {
+  if (depth > 4 || cause === null || cause === undefined) return '';
+  const error = cause as { message?: unknown; cause?: unknown; errors?: unknown[] };
+  const message = typeof error.message === 'string' ? error.message : String(cause);
+  const nested = Array.isArray(error.errors)
+    ? error.errors.map((e) => describe(e, depth + 1)).filter(Boolean)
+    : [describe(error.cause, depth + 1)].filter(Boolean);
+  const unique = nested.filter((text) => !message.includes(text));
+  return unique.length === 0 ? message : `${message} — ${unique.join('; ')}`;
+};
+
+/**
  * Connects a Midnight wallet and runs a payroll from it: the recipient's view of
  * what they were paid, and the organizer's whole cycle — funding, deployment,
  * opening and settling — with the wallet holding every key.
@@ -160,7 +179,9 @@ export function WalletPanel() {
       setContract(recall(storageKey(next, 'contract')));
       setTokenContract(DEMO_DOLLAR_CONTRACT.preprod ?? recall(storageKey(next, 'token')));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      // eslint-disable-next-line no-console
+      console.error('conserve: connect failed', cause);
+      setError(describe(cause));
     } finally {
       setBusy(null);
     }
@@ -185,12 +206,12 @@ export function WalletPanel() {
       setMessage(await work(live));
       await refreshBalances().catch(() => undefined);
     } catch (cause) {
+      // eslint-disable-next-line no-console
+      console.error('conserve: step failed', cause);
       setError(
         isChannelClosed(cause)
           ? `${session.wallet.api.name} closed its connection. Approve its prompt, or press Connect again, then retry.`
-          : cause instanceof Error
-            ? cause.message
-            : String(cause),
+          : describe(cause),
       );
     } finally {
       setBusy(null);
