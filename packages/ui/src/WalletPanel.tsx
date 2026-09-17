@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CONSERVE_PRIVATE_STATE_ID, DEMO_DOLLAR_CONTRACT } from '@conserve/api/config';
 import {
   type ConserveDeployment,
@@ -25,6 +25,7 @@ import {
   connectWallet,
   ensureConnected,
   isChannelClosed,
+  isWalletLocked,
 } from './wallet.js';
 
 const NETWORK_ID = 'preprod';
@@ -145,6 +146,7 @@ export function WalletPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const stepLabel = useRef<string | null>(null);
 
   // Wallet extensions inject window.midnight shortly after page load.
   useEffect(() => {
@@ -206,6 +208,7 @@ export function WalletPanel() {
     setError(null);
     setMessage(null);
     setBusy(label);
+    stepLabel.current = label;
     try {
       const live = await ensureConnected(session);
       if (live !== session) setSession(live);
@@ -217,9 +220,12 @@ export function WalletPanel() {
       setError(
         isChannelClosed(cause)
           ? `${session.wallet.api.name} closed its connection. Approve its prompt, or press Connect again, then retry.`
-          : describe(cause),
+          : isWalletLocked(cause)
+            ? `${session.wallet.api.name} stayed locked. Unlock it, then retry.`
+            : describe(cause),
       );
     } finally {
+      stepLabel.current = null;
       setBusy(null);
     }
   };
@@ -232,8 +238,16 @@ export function WalletPanel() {
       : null;
   }, [password]);
 
+  /** Swaps the progress line for an unlock request while the wallet is locked. */
+  const onLocked = (locked: boolean) =>
+    setBusy(
+      locked
+        ? `${session?.wallet.api.name ?? 'Your wallet'} locked itself while this was proving. Unlock it — the proof is kept and the step carries on.`
+        : stepLabel.current,
+    );
+
   const conserveProviders = async (live: WalletSession) =>
-    browserProviders(live, 'conserve', password, proofServer.trim());
+    browserProviders(live, 'conserve', password, proofServer.trim(), onLocked);
 
   /**
    * One scoped provider set for a whole step, with the contract joined.
@@ -264,7 +278,7 @@ export function WalletPanel() {
 
   const getDollars = () =>
     step('Minting Demo Dollars — approve in your wallet, then it proves…', async (live) => {
-      const providers = await browserProviders(live, 'demo-dollar', password, proofServer.trim());
+      const providers = await browserProviders(live, 'demo-dollar', password, proofServer.trim(), onLocked);
       let address = tokenContract;
       if (address === null) {
         address = await deployDemoDollar(providers);

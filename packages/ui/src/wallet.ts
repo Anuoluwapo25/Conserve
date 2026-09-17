@@ -177,9 +177,59 @@ const toHex = (bytes: Uint8Array): string =>
 const fromHex = (hex: string): Uint8Array =>
   Uint8Array.from(hex.match(/../g) ?? [], (byte) => parseInt(byte, 16));
 
+/** Whether the wallet refused a call because it has locked itself. */
+export const isWalletLocked = (cause: unknown): boolean =>
+  /wallet is locked|unlock the wallet/i.test(
+    String(cause instanceof Error ? cause.message : cause),
+  );
+
+/** How long to wait for someone to unlock the wallet before giving up. */
+const UNLOCK_TIMEOUT_MS = 10 * 60 * 1000;
+const UNLOCK_POLL_MS = 3_000;
+
+/**
+ * Calls the wallet, waiting out a lock instead of failing.
+ *
+ * Balancing and submitting come after the proof, which takes minutes — long
+ * enough for the wallet to auto-lock. Failing then throws the proof away, so
+ * say the wallet needs unlocking and retry once it answers again.
+ */
+const whileUnlocked = async <T>(
+  session: WalletSession,
+  onLocked: (locked: boolean) => void,
+  call: () => Promise<T>,
+): Promise<T> => {
+  const deadline = Date.now() + UNLOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const result = await call();
+      onLocked(false);
+      return result;
+    } catch (cause) {
+      if (!isWalletLocked(cause) || Date.now() > deadline) {
+        onLocked(false);
+        throw cause;
+      }
+      onLocked(true);
+      // Probe with a call that opens no prompt until the wallet answers again.
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, UNLOCK_POLL_MS));
+        if (Date.now() > deadline) break;
+        try {
+          await session.api.getShieldedAddresses();
+          break;
+        } catch (probe) {
+          if (!isWalletLocked(probe)) break;
+        }
+      }
+    }
+  }
+};
+
 /** The wallet balances and seals; the wallet submits. */
 const walletSide = (
   session: WalletSession,
+  onLocked: (locked: boolean) => void,
 ): {
   walletProvider: WalletProvider;
   midnightProvider: MidnightProvider;
@@ -188,7 +238,10 @@ const walletSide = (
     getCoinPublicKey: () => session.coinPublicKey,
     getEncryptionPublicKey: () => session.encryptionPublicKey,
     balanceTx: async (tx) => {
-      const { tx: sealed } = await session.api.balanceUnsealedTransaction(toHex(tx.serialize()));
+      const serialized = toHex(tx.serialize());
+      const { tx: sealed } = await whileUnlocked(session, onLocked, () =>
+        session.api.balanceUnsealedTransaction(serialized),
+      );
       return Transaction.deserialize(
         'signature',
         'proof',
@@ -199,7 +252,8 @@ const walletSide = (
   },
   midnightProvider: {
     submitTx: async (tx) => {
-      await session.api.submitTransaction(toHex(tx.serialize()));
+      const serialized = toHex(tx.serialize());
+      await whileUnlocked(session, onLocked, () => session.api.submitTransaction(serialized));
       const [id] = tx.identifiers();
       if (id === undefined) throw new Error('submitted transaction has no identifier');
       return id;
@@ -329,12 +383,16 @@ const PROOF_TIMEOUT_MS = 45 * 60 * 1000;
  *
  * The private state — for Conserve, the roster — is encrypted with `password`
  * and kept in this browser's IndexedDB. It never leaves the machine.
+ *
+ * `onLocked` hears when the wallet has locked itself mid-step and is being
+ * waited on, so the page can ask for it to be unlocked.
  */
 export const browserProviders = async <K extends keyof ProviderKinds>(
   session: WalletSession,
   contract: K,
   password: string,
   proofServerUrl: string,
+  onLocked: (locked: boolean) => void = () => undefined,
 ): Promise<ProviderKinds[K]> => {
   const zkConfigProvider = new SiteZkConfigProvider(zkBaseUrl(contract));
   const proofProvider = httpClientProofProvider(proofServerUrl, zkConfigProvider, {
@@ -349,6 +407,6 @@ export const browserProviders = async <K extends keyof ProviderKinds>(
     publicDataProvider: indexerPublicDataProvider(session.indexerUri, session.indexerWsUri),
     zkConfigProvider,
     proofProvider,
-    ...walletSide(session),
+    ...walletSide(session, onLocked),
   } as unknown as ProviderKinds[K];
 };
