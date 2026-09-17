@@ -28,6 +28,7 @@ import {
 } from './wallet.js';
 
 const NETWORK_ID = 'preprod';
+const DEFAULT_PROOF_SERVER = 'http://localhost:6300';
 const MINT_AMOUNT = 1_000_000n;
 
 const short = (value: string, keep = 10): string =>
@@ -138,6 +139,9 @@ export function WalletPanel() {
   const [payrollText, setPayrollText] = useState('');
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [diagnostics, setDiagnostics] = useState<readonly string[] | null>(null);
+  const [proofServer, setProofServer] = useState(
+    () => recall('conserve:proof-server') ?? DEFAULT_PROOF_SERVER,
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -229,7 +233,7 @@ export function WalletPanel() {
   }, [password]);
 
   const conserveProviders = async (live: WalletSession) =>
-    browserProviders(live, 'conserve', password);
+    browserProviders(live, 'conserve', password, proofServer.trim());
 
   /**
    * One scoped provider set for a whole step, with the contract joined.
@@ -260,7 +264,7 @@ export function WalletPanel() {
 
   const getDollars = () =>
     step('Minting Demo Dollars — approve in your wallet, then it proves…', async (live) => {
-      const providers = await browserProviders(live, 'demo-dollar', password);
+      const providers = await browserProviders(live, 'demo-dollar', password, proofServer.trim());
       let address = tokenContract;
       if (address === null) {
         address = await deployDemoDollar(providers);
@@ -359,7 +363,8 @@ export function WalletPanel() {
   // been registered for it. Without any, each button would fail on submission
   // for a reason the error would not explain.
   const fundable = balances !== null && balances.dust > 0n;
-  const ready = passwordIssue === null && busy === null && fundable;
+  const ready =
+    passwordIssue === null && busy === null && fundable && proofServer.trim().length > 0;
 
   return (
     <section className="panel wallet">
@@ -439,26 +444,30 @@ export function WalletPanel() {
         </div>
       )}
 
-      {session.proverUri !== undefined &&
-        !/^https?:\/\/(localhost|127\.0\.0\.1)/.test(session.proverUri) && (
-          <div className="commitment">
-            <span>This wallet proves remotely</span>
-            <p className="note">
-              {session.wallet.api.name} is set to prove at <code>{session.proverUri}</code>. Proving
-              needs the payroll in the clear, so that server would see it — and a hosted prover will
-              not accept proving material for your own contract, which fails as a bare{' '}
-              <code>400</code>. Point the wallet's proof server at{' '}
-              <code>http://localhost:6300</code> and run one yourself:
-            </p>
-            <code className="receipt-line">
-              docker run -d --rm -p 6300:6300 -v midnight-zk-params:/.cache/midnight/zk-params
-              midnightntwrk/proof-server:8.1.0 -- &apos;midnight-proof-server --port 6300
-              --num-workers 2 --job-timeout 3600&apos;
-            </code>
-          </div>
-        )}
-
       <h3>Run a payroll</h3>
+      <label className="stack">
+        <span>Proof server — one you run; it sees the payroll in the clear</span>
+        <input
+          value={proofServer}
+          onChange={(event) => {
+            setProofServer(event.target.value);
+            remember('conserve:proof-server', event.target.value);
+          }}
+          spellCheck={false}
+          placeholder={DEFAULT_PROOF_SERVER}
+        />
+      </label>
+      <p className="note">
+        Start one with{' '}
+        <code>
+          docker run -d --rm -p 6300:6300 -v midnight-zk-params:/.cache/midnight/zk-params
+          midnightntwrk/proof-server:8.1.0 -- &apos;midnight-proof-server --port 6300&apos;
+        </code>
+        . On this page, served over HTTPS, a <code>http://localhost</code> prover is blocked as
+        mixed content — expose yours over HTTPS (a tunnel will do) and paste that URL, or open this
+        dashboard from <code>http://localhost</code> instead.
+      </p>
+
       <label className="stack">
         <span>Passphrase protecting your payroll on this device</span>
         <input

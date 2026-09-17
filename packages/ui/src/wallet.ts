@@ -9,8 +9,8 @@
  */
 
 import type { ConnectedAPI, InitialAPI } from '@midnight-ntwrk/dapp-connector-api';
-import { CostModel, Transaction, type FinalizedTransaction } from '@midnight-ntwrk/ledger-v8';
-import { dappConnectorProofProvider } from '@midnight-ntwrk/midnight-js-dapp-connector-proof-provider';
+import { Transaction, type FinalizedTransaction } from '@midnight-ntwrk/ledger-v8';
+import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
@@ -314,8 +314,18 @@ type ProviderKinds = {
   'demo-dollar': DemoDollarProviders;
 };
 
+/** How long to wait for one proof; a settlement's takes minutes. */
+const PROOF_TIMEOUT_MS = 45 * 60 * 1000;
+
 /**
  * Providers for one contract, backed by the connected wallet.
+ *
+ * Proving goes to `proofServerUrl` rather than to the wallet's own prover. The
+ * proof is built in this page, so the browser's rules apply: a hosted prover
+ * refuses browser origins outright, and it would see the payroll in the clear
+ * if it did not. A proof server the organizer runs — directly, or through a
+ * tunnel — is both the only thing that works and the only thing that is
+ * private.
  *
  * The private state — for Conserve, the roster — is encrypted with `password`
  * and kept in this browser's IndexedDB. It never leaves the machine.
@@ -324,13 +334,12 @@ export const browserProviders = async <K extends keyof ProviderKinds>(
   session: WalletSession,
   contract: K,
   password: string,
+  proofServerUrl: string,
 ): Promise<ProviderKinds[K]> => {
   const zkConfigProvider = new SiteZkConfigProvider(zkBaseUrl(contract));
-  const proofProvider = await dappConnectorProofProvider(
-    session.api,
-    zkConfigProvider,
-    CostModel.initialCostModel(),
-  );
+  const proofProvider = httpClientProofProvider(proofServerUrl, zkConfigProvider, {
+    timeout: PROOF_TIMEOUT_MS,
+  });
   return {
     privateStateProvider: levelPrivateStateProvider({
       privateStateStoreName: `conserve-browser-${contract}`,
