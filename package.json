@@ -23,8 +23,8 @@
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },
   "devDependencies": {
-    "prettier": "^3.3.3",
-    "typescript": "^5.6.3"
+    "prettier": "^3.9.8",
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "@midnight-ntwrk/ledger-v8": "8.1.0",
