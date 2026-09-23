@@ -6,7 +6,9 @@ import {
   deploy,
   join,
   openCycle,
+  publicState,
   settle,
+  summarise,
 } from '@conserve/api/conserve';
 import { demoDollarToken, deployDemoDollar, mintDemoDollars } from '@conserve/api/demo-dollar';
 import {
@@ -278,7 +280,13 @@ export function WalletPanel() {
 
   const getDollars = () =>
     step('Minting Demo Dollars — approve in your wallet, then it proves…', async (live) => {
-      const providers = await browserProviders(live, 'demo-dollar', password, proofServer.trim(), onLocked);
+      const providers = await browserProviders(
+        live,
+        'demo-dollar',
+        password,
+        proofServer.trim(),
+        onLocked,
+      );
       let address = tokenContract;
       if (address === null) {
         address = await deployDemoDollar(providers);
@@ -317,6 +325,16 @@ export function WalletPanel() {
       async (live) => {
         if (parsed.error !== undefined) throw new Error(parsed.error);
         const { providers, deployment, state } = await conserveFor(live);
+        // Settling with no open cycle fails only after the wallet round trip,
+        // as an assertion deep inside the circuit. The chain says so up front.
+        if (
+          summarise(await publicState(providers, contractAddressOf(deployment))).status !== 'open'
+        ) {
+          throw new Error(
+            'No cycle is open on this contract, so there is nothing to settle. Press Open cycle ' +
+              'first and wait for it to confirm — an earlier attempt may have failed before submitting.',
+          );
+        }
         const result = await settle(providers, deployment, state, parsed.payouts);
         setReceipts(
           result.receipts.map((receipt) => ({

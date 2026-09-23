@@ -147,10 +147,12 @@ export const connectWallet = async (
  * that keeps working. Dismissing the popup, or the extension's background
  * worker sleeping between steps, tears it down — and every later call fails
  * with "Remote API with channel '…' was shutdown: object can no longer be
- * used". Reconnecting is the only cure, so recognise it and do that.
+ * used". A wallet can also drop this site's authorization while the channel
+ * stays up, answering "No account is connected for this dApp. Please
+ * reconnect." Reconnecting is the only cure for either, so recognise both.
  */
 export const isChannelClosed = (cause: unknown): boolean =>
-  /was shutdown|no longer be used|disconnect|not connected/i.test(
+  /was shutdown|no longer be used|disconnect|not connected|no account is connected|please reconnect/i.test(
     String(cause instanceof Error ? cause.message : cause),
   );
 
@@ -226,40 +228,65 @@ const whileUnlocked = async <T>(
   }
 };
 
-/** The wallet balances and seals; the wallet submits. */
+/**
+ * The wallet balances and seals; the wallet submits.
+ *
+ * Both happen after the proof, minutes after the step checked its connection,
+ * and the wallet may have dropped this site in between. Reconnect and retry
+ * the same call rather than throw the proof away — but only to the same
+ * account, since the transaction was built for its keys.
+ */
 const walletSide = (
   session: WalletSession,
   onLocked: (locked: boolean) => void,
 ): {
   walletProvider: WalletProvider;
   midnightProvider: MidnightProvider;
-} => ({
-  walletProvider: {
-    getCoinPublicKey: () => session.coinPublicKey,
-    getEncryptionPublicKey: () => session.encryptionPublicKey,
-    balanceTx: async (tx) => {
-      const serialized = toHex(tx.serialize());
-      const { tx: sealed } = await whileUnlocked(session, onLocked, () =>
-        session.api.balanceUnsealedTransaction(serialized),
-      );
-      return Transaction.deserialize(
-        'signature',
-        'proof',
-        'binding',
-        fromHex(sealed),
-      ) as FinalizedTransaction;
+} => {
+  let live = session;
+  const call = async <T>(request: (api: ConnectedAPI) => Promise<T>): Promise<T> => {
+    try {
+      return await whileUnlocked(live, onLocked, () => request(live.api));
+    } catch (cause) {
+      if (!isChannelClosed(cause)) throw cause;
+      const next = await connectWallet(live.wallet, live.networkId);
+      if (next.coinPublicKey !== live.coinPublicKey) {
+        throw new Error(
+          `${live.wallet.api.name} reconnected with a different account. Switch back to the one ` +
+            `this step started with, then retry.`,
+          { cause },
+        );
+      }
+      live = next;
+      return whileUnlocked(live, onLocked, () => request(live.api));
+    }
+  };
+  return {
+    walletProvider: {
+      getCoinPublicKey: () => session.coinPublicKey,
+      getEncryptionPublicKey: () => session.encryptionPublicKey,
+      balanceTx: async (tx) => {
+        const serialized = toHex(tx.serialize());
+        const { tx: sealed } = await call((api) => api.balanceUnsealedTransaction(serialized));
+        return Transaction.deserialize(
+          'signature',
+          'proof',
+          'binding',
+          fromHex(sealed),
+        ) as FinalizedTransaction;
+      },
     },
-  },
-  midnightProvider: {
-    submitTx: async (tx) => {
-      const serialized = toHex(tx.serialize());
-      await whileUnlocked(session, onLocked, () => session.api.submitTransaction(serialized));
-      const [id] = tx.identifiers();
-      if (id === undefined) throw new Error('submitted transaction has no identifier');
-      return id;
+    midnightProvider: {
+      submitTx: async (tx) => {
+        const serialized = toHex(tx.serialize());
+        await call((api) => api.submitTransaction(serialized));
+        const [id] = tx.identifiers();
+        if (id === undefined) throw new Error('submitted transaction has no identifier');
+        return id;
+      },
     },
-  },
-});
+  };
+};
 
 /**
  * Where the browser fetches a contract's proving keys and ZK IR: this site's
@@ -363,6 +390,32 @@ export const checkZkAssets = async (
   return results;
 };
 
+/**
+ * Confirms the browser can reach the proof server before any work starts.
+ *
+ * When it cannot, the SDK fails mid-step with "'check' returned an error:
+ * TypeError: Failed to fetch", which names neither the server nor why. The
+ * browser hides the reason too, so list the ones that happen in practice.
+ */
+export const checkProofServer = async (url: string): Promise<void> => {
+  if (url === '') throw new Error('Enter the URL of a proof server you run.');
+  try {
+    await fetch(url, { method: 'GET' });
+  } catch (cause) {
+    const mixed =
+      window.location.protocol === 'https:' && url.startsWith('http:')
+        ? ' This page is HTTPS and the prover is plain HTTP, which browsers block —'
+        : '';
+    throw new Error(
+      `This browser cannot reach the proof server at ${url}.${mixed} Check that it is running ` +
+        `(docker ps), that the URL is right, and — if it sits behind a tunnel — that the tunnel is up ` +
+        `and passes browser requests (CORS) through. Nothing was submitted. ` +
+        `(${cause instanceof Error ? cause.message : String(cause)})`,
+      { cause },
+    );
+  }
+};
+
 type ProviderKinds = {
   conserve: ConserveProviders;
   'demo-dollar': DemoDollarProviders;
@@ -394,6 +447,7 @@ export const browserProviders = async <K extends keyof ProviderKinds>(
   proofServerUrl: string,
   onLocked: (locked: boolean) => void = () => undefined,
 ): Promise<ProviderKinds[K]> => {
+  await checkProofServer(proofServerUrl);
   const zkConfigProvider = new SiteZkConfigProvider(zkBaseUrl(contract));
   const proofProvider = httpClientProofProvider(proofServerUrl, zkConfigProvider, {
     timeout: PROOF_TIMEOUT_MS,
