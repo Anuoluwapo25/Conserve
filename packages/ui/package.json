@@ -14,7 +14,7 @@
     "@conserve/api": "0.4.0",
     "@conserve/contract": "0.4.0",
     "@midnight-ntwrk/dapp-connector-api": "4.0.1",
-    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/ledger-v8": "8.1.2",
     "@midnight-ntwrk/midnight-js-dapp-connector-proof-provider": "4.1.1",
     "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
     "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
